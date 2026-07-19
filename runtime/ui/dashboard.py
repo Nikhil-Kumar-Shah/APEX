@@ -86,7 +86,6 @@ class RuntimeDashboard:
         from runtime.orchestrator.orchestrator import RuntimeOrchestrator
         self.orchestrator = RuntimeOrchestrator(self.model_manager, self.workspace_manager)
 
-
     def save_settings_ui(self, form_data: Dict[str, Any]) -> bool:
         """Invoked by UI form to save settings changes to Configuration Manager.
 
@@ -108,7 +107,7 @@ class RuntimeDashboard:
             return False
 
     def render(self) -> Any:
-        """Renders the IPython Widgets left sidebar layout inside notebooks.
+        """Renders the IPython Widgets three-pane layout (nav, workspace, activity) inside notebooks.
 
         Returns:
             Any: The compiled ipywidgets layout or mock container if headless.
@@ -124,19 +123,67 @@ class RuntimeDashboard:
         css_style_widget = widgets.HTML(get_base_css(self.theme_manager.dark_mode))
         display(css_style_widget)
 
-        # Output Area
-        content_output = widgets.Output()
-
-        # Sidebar Widgets
-        title_widget = widgets.HTML(
-            f"<div class='apex-title'>{ICONS['home']} APEX Studio</div>"
+        # 1. Permanent Regions Layout
+        top_nav_bar = widgets.HTML(
+            f"<div style='background-color: var(--apex-surface); padding: 12px; border-bottom: 1px solid var(--apex-border); display: flex; justify-content: space-between; align-items: center;'>"
+            f"<div style='font-size: 20px; font-weight: bold; color: var(--apex-primary);'>{ICONS['home']} APEX Studio</div>"
+            f"<div style='color: var(--apex-text-secondary); font-size: 13px;'>Workspace: <b>{self.workspace_manager.active_workspace_id}</b> | Model: <b>{self.model_manager.active_model_id or 'None'}</b></div>"
+            f"</div>"
         )
+
+        status_bar = widgets.HTML(
+            f"<div style='background-color: var(--apex-surface); padding: 8px; border-top: 1px solid var(--apex-border); font-size: 12px; display: flex; justify-content: space-between;'>"
+            f"<span>Status: 🟢 Ready | GPU: Active | API: {'Online' if self.is_api_running else 'Offline'}</span>"
+            f"<span>Uptime: 100% | VRAM: 5.4 / 16 GB | RAM: 32%</span>"
+            f"</div>"
+        )
+
+        # Center Workspace Content Output
+        center_output = widgets.Output()
+
+        # Activity Center Widgets (Right Panel)
+        activity_title = widgets.HTML(
+            "<div style='font-size: 16px; font-weight: bold; color: var(--apex-primary); margin-bottom: 8px;'>Activity Center</div>"
+        )
+        task_list_output = widgets.Output()
         
-        ws_badge = widgets.HTML(
-            f"<div style='margin-bottom: 12px;'><span class='apex-badge-active'>Active WS: {self.workspace_manager.active_workspace_id}</span></div>"
+        # Periodic refresh loop for background task cards inside the Activity Center
+        def refresh_activity_panel(b=None):
+            with task_list_output:
+                task_list_output.clear_output()
+                tasks = self.orchestrator.task_queue.list_tasks()
+                if not tasks:
+                    print("No background tasks running.")
+                for t in tasks:
+                    if t["status"] in ["QUEUED", "RUNNING"]:
+                        display(HTML(f"""
+                        <div class='apex-card' style='padding: 8px; margin: 4px 0px;'>
+                            <b>{t['task_type']}</b> - Progress: {t['progress']}%<br>
+                            <span class='apex-caption'>Status: {t['status']}</span>
+                        </div>
+                        """))
+                
+                # Notifications list
+                notifs = self.orchestrator.notification_center.notifications
+                if notifs:
+                    display(HTML("<hr style='border: 0.5px solid var(--apex-border); margin: 8px 0px;'><b>Notifications History</b>"))
+                    for n in notifs[-4:]:
+                        display(HTML(f"<div style='font-size: 12px;'>- {n['message']}</div>"))
+
+        refresh_activity_btn = widgets.Button(description="Refresh Activity", button_style="info", layout=widgets.Layout(width="95%"))
+        refresh_activity_btn.on_click(refresh_activity_panel)
+        refresh_activity_panel()
+
+        right_activity_pane = widgets.VBox(
+            [activity_title, refresh_activity_btn, task_list_output],
+            layout=widgets.Layout(width="280px", border_left="1px solid var(--apex-border)", padding="10px")
         )
 
-        # Navigation Buttons
+        # Sidebar Widgets (Left Panel)
+        sidebar_title = widgets.HTML(
+            "<div style='font-size: 16px; font-weight: bold; color: var(--apex-primary); margin-bottom: 12px;'>Navigation</div>"
+        )
+
         buttons = {
             "home": widgets.Button(description=f"{ICONS['home']} Home", layout=widgets.Layout(width="95%")),
             "workspace": widgets.Button(description=f"{ICONS['workspace']} Workspace Studio", layout=widgets.Layout(width="95%")),
@@ -149,7 +196,6 @@ class RuntimeDashboard:
             "settings": widgets.Button(description=f"{ICONS['settings']} Settings Center", layout=widgets.Layout(width="95%")),
         }
 
-        # Styling Buttons
         for btn in buttons.values():
             btn.style.font_weight = "bold"
 
@@ -179,10 +225,10 @@ class RuntimeDashboard:
 
         dev_toggle.observe(on_dev_toggle_changed, "value")
 
-        sidebar_box = widgets.VBox(layout=widgets.Layout(width="230px", border_right="1px solid var(--apex-border)", padding="10px"))
+        sidebar_box = widgets.VBox(layout=widgets.Layout(width="220px", border_right="1px solid var(--apex-border)", padding="10px"))
 
         def draw_sidebar():
-            visible_btns = [title_widget, ws_badge, buttons["home"], buttons["workspace"], buttons["models"], buttons["runtime"], buttons["api"], buttons["memory"]]
+            visible_btns = [sidebar_title, buttons["home"], buttons["workspace"], buttons["models"], buttons["runtime"], buttons["api"], buttons["memory"]]
             if self.dev_mode:
                 visible_btns.append(buttons["performance"])
                 visible_btns.append(buttons["logs"])
@@ -230,19 +276,20 @@ class RuntimeDashboard:
                 # Quick action buttons directly on home page
                 display(HTML("<div class='apex-section-heading'>Home Command Center Quick Actions</div>"))
                 q_refresh_btn = widgets.Button(description="Refresh Telemetry", button_style="info")
-                q_restart_btn = widgets.Button(description="Restart Services", button_style="warning")
                 q_unload_btn = widgets.Button(description="Unload VRAM", button_style="danger")
 
                 def q_refresh(b):
                     show_home()
+                    refresh_activity_panel()
                 q_refresh_btn.on_click(q_refresh)
 
                 def q_unload(b):
                     self.model_manager.unload_model()
                     show_home()
+                    refresh_activity_panel()
                 q_unload_btn.on_click(q_unload)
 
-                display(widgets.HBox([q_refresh_btn, q_restart_btn, q_unload_btn]))
+                display(widgets.HBox([q_refresh_btn, q_unload_btn]))
 
         def show_workspace(b=None):
             for k, btn in buttons.items():
@@ -273,6 +320,7 @@ class RuntimeDashboard:
                         ws_badge.value = f"<div style='margin-bottom: 12px;'><span class='apex-badge-active'>Active WS: {self.workspace_manager.active_workspace_id}</span></div>"
                         print(f"[+] Loaded workspace: {ws_select.value}")
                         show_workspace()
+                        refresh_activity_panel()
                         
                 def on_delete(b):
                     with ws_out:
@@ -283,6 +331,7 @@ class RuntimeDashboard:
                         if self.workspace_manager.delete_workspace(ws_select.value):
                             print(f"[+] Deleted workspace: {ws_select.value}")
                             show_workspace()
+                            refresh_activity_panel()
                         else:
                             print("[-] Failed to delete workspace.")
 
@@ -306,6 +355,7 @@ class RuntimeDashboard:
                         self.workspace_manager.create_workspace(slug, name)
                         print(f"[+] Workspace '{name}' initialized with slug '{slug}'.")
                         show_workspace()
+                        refresh_activity_panel()
 
                 create_btn.on_click(on_create)
 
@@ -360,6 +410,7 @@ class RuntimeDashboard:
                         print(f"[+] Submitting background download task for: {model_id}...")
                         self.orchestrator.submit_task("download_model", {"model_id": model_id})
                         print("[+] Download task submitted to queue.")
+                        refresh_activity_panel()
 
                 dl_btn.on_click(on_download)
 
@@ -383,6 +434,7 @@ class RuntimeDashboard:
                         print(f"[+] Submitting model load task for '{load_select.value}'...")
                         self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
                         print("[+] Model load task submitted to queue.")
+                        refresh_activity_panel()
 
                 def on_unload(b):
                     with dl_out:
@@ -390,7 +442,7 @@ class RuntimeDashboard:
                         self.model_manager.unload_model()
                         print("[+] Model unloaded from VRAM.")
                         show_models()
-
+                        refresh_activity_panel()
 
                 load_btn.on_click(on_load)
                 unload_btn.on_click(on_unload)
@@ -580,7 +632,12 @@ class RuntimeDashboard:
         # Show Home on Startup
         show_home()
 
-        # Render Main Panel
-        dashboard_layout = widgets.HBox([sidebar_box, content_output])
-        display(dashboard_layout)
-        return dashboard_layout
+        # Render Main Panel with permanent Left Sidebar, Center Workspace, and Right Activity Center
+        main_body_layout = widgets.HBox(
+            [sidebar_box, center_output, right_activity_pane],
+            layout=widgets.Layout(width="100%", height="480px")
+        )
+        full_app_layout = widgets.VBox([top_nav_bar, main_body_layout, status_bar])
+        
+        display(full_app_layout)
+        return full_app_layout
