@@ -57,7 +57,7 @@ class RuntimeLauncher:
             model_mgr = ModelManager(cache_path)
             health_mon = HealthMonitor(cache_path, model_mgr)
 
-            dashboard = RuntimeDashboard(lifecycle.config_manager, model_mgr, health_mon, log_path)
+            dashboard = RuntimeDashboard(lifecycle.config_manager, model_mgr, health_mon, log_path, lifecycle=lifecycle)
             dashboard.render()
             
             return True
