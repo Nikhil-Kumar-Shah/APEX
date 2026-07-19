@@ -122,12 +122,12 @@ APEX exposes standard endpoints for integration with LLM coding tools:
 ## 📖 Documentation Index
 
 For detailed guidelines, inspect the documentation folder:
-- [Developer Guide](file:///d:/colab_ Models/docs/DEVELOPER_GUIDE.md)
-- [Model Runtime Architecture](file:///d:/colab_ Models/docs/Model_Runtime_Architecture.md)
-- [Server API Architecture](file:///d:/colab_ Models/docs/Server_API_Architecture.md)
-- [Memory Workspace Architecture](file:///d:/colab_ Models/docs/Memory_Workspace_Architecture.md)
-- [User Interface Architecture](file:///d:/colab_ Models/docs/User_Interface_Architecture.md)
-- [Release Process Guide](file:///d:/colab_ Models/docs/RELEASE_PROCESS.md)
+- [Developer Guide](file:///d:/APEX/docs/DEVELOPER_GUIDE.md)
+- [Model Runtime Architecture](file:///d:/APEX/docs/Model_Runtime_Architecture.md)
+- [Server API Architecture](file:///d:/APEX/docs/Server_API_Architecture.md)
+- [Memory Workspace Architecture](file:///d:/APEX/docs/Memory_Workspace_Architecture.md)
+- [User Interface Architecture](file:///d:/APEX/docs/User_Interface_Architecture.md)
+- [Release Process Guide](file:///d:/APEX/docs/RELEASE_PROCESS.md)
 
 ---
 
