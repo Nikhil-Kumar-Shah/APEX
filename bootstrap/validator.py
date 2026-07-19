@@ -1,4 +1,4 @@
-"""System integrity validation and automatic repairs."""
+"""System integrity validation and manifest-based structures checks."""
 
 import logging
 from pathlib import Path
@@ -6,13 +6,14 @@ from typing import List
 
 from runtime.config.schema import DEFAULT_CONFIG_TEMPLATE
 from runtime.utils.file import safe_write_json
+from bootstrap.config import REQUIRED_MANIFEST
 from bootstrap.dependency_manager import DependencyInstaller
 
 logger = logging.getLogger("bootstrap.validator")
 
 
 class SystemValidator:
-    """Verifies directory setups, installed packages, and repairs corrupted/missing assets."""
+    """Verifies directory setups, installed packages, and checks codebase manifests."""
 
     def __init__(self, project_root: Path):
         """Initializes the SystemValidator.
@@ -22,6 +23,28 @@ class SystemValidator:
         """
         self.project_root = project_root
         self.dep_installer = DependencyInstaller()
+
+    def validate_manifest(self) -> bool:
+        """Validates existence of required manifest paths in the repository.
+
+        Returns:
+            bool: True if validation succeeds.
+        """
+        missing_paths = []
+        for path_str in REQUIRED_MANIFEST:
+            target_path = self.project_root / path_str
+            if not target_path.exists():
+                missing_paths.append(path_str)
+
+        if missing_paths:
+            logger.error("[-] Repository validation failed! Structural files/folders are missing:")
+            for mp in missing_paths:
+                logger.error(f"  - Missing: {mp}")
+            logger.error("[!] Suggestion: Run a clean re-clone or pull the default branch to repair files.")
+            return False
+
+        logger.info("[+] Repository validation completed successfully.")
+        return True
 
     def validate_directories(self, required_dirs: List[str]) -> bool:
         """Verifies directories exist, auto-creating them if missing.

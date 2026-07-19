@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from bootstrap.config import DEFAULT_BRANCH, REPOSITORY_URL
 from bootstrap.dependency_manager import DependencyInstaller
 from bootstrap.repository_manager import RepositoryManager
 from bootstrap.version_manager import VersionManager
@@ -11,9 +12,9 @@ from bootstrap.validator import SystemValidator
 
 
 class InstallationWizard:
-    """Guides first-time users through repo clones, storage locations, and dependency setups."""
+    """Guides first-time users through repo updates, storage locations, and dependency setups."""
 
-    def __init__(self, workspace_parent_dir: Path, repo_url: str):
+    def __init__(self, workspace_parent_dir: Path, repo_url: str = REPOSITORY_URL):
         """Initializes the InstallationWizard.
 
         Args:
@@ -58,11 +59,10 @@ class InstallationWizard:
 
         print(f"[+] Target Installation Directory: {target_dir}")
 
-
         # 2. Check Repository
         repo_mgr = RepositoryManager(target_dir, self.repo_url)
         v_mgr = VersionManager(version_mode, version_ref)
-        checkout_ref = v_mgr.get_checkout_ref()
+        checkout_ref = v_mgr.get_checkout_ref(target_dir)
 
         if not repo_mgr.is_cloned():
             success = repo_mgr.clone()
@@ -75,11 +75,14 @@ class InstallationWizard:
             repo_mgr.update()
 
         # Checkout target version ref
-        repo_mgr.checkout(checkout_ref)
+        success = repo_mgr.checkout(checkout_ref)
+        if not success:
+            print(f"[-] Requested release or tag '{checkout_ref}' not found. Continuing with the default branch.")
+            repo_mgr.checkout(DEFAULT_BRANCH)
 
         # 3. Validate structure
         validator = SystemValidator(target_dir)
-        if not repo_mgr.validate_integrity():
+        if not validator.validate_manifest():
             print("[-] Repository structure is invalid or corrupted.")
             return None
 
@@ -91,7 +94,6 @@ class InstallationWizard:
 
         # 5. Initialize config directories
         config_path = target_dir / "configs" / "apex.config.json"
-
         validator.validate_and_repair_configuration(config_path)
 
         print("[+] Installation and verification complete.")

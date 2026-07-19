@@ -10,12 +10,14 @@ The codebase is split into two packages:
 
 ### 1. `bootstrap/` (Deployment Layer)
 Manages the environment setup and updates:
-- `repository_manager.py`: Handles git clone/pull subprocesses and integrity verification.
+- `config.py`: Centralizes repository URL, default branches, and manifest check files.
+- `repository_manager.py`: Handles git clone/pull subprocesses.
 - `dependency_manager.py`: Runs automated `pip` installations.
-- `version_manager.py`: Matches checkout version references (stable tags, branches).
+- `version_manager.py`: Checks Git tags dynamically and falls back to Development Mode.
 - `installer.py`: Standard setup wizard.
 - `launcher.py`: Path configurer loading packages dynamically.
 - `migration.py`: Handles configuration file backup and schema updates.
+- `validator.py`: Performs manifest-based structure validations.
 
 ### 2. `runtime/` (Core Application)
 - `config`: Handles workspace configuration schemas and migrations.
