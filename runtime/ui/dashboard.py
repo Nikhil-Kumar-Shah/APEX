@@ -139,7 +139,8 @@ class RuntimeDashboard:
         )
 
         # Center Workspace Content Output
-        center_output = widgets.Output()
+        content_output = widgets.Output()
+
 
         # Activity Center Widgets (Right Panel)
         activity_title = widgets.HTML(
@@ -634,7 +635,7 @@ class RuntimeDashboard:
 
         # Render Main Panel with permanent Left Sidebar, Center Workspace, and Right Activity Center
         main_body_layout = widgets.HBox(
-            [sidebar_box, center_output, right_activity_pane],
+            [sidebar_box, content_output, right_activity_pane],
             layout=widgets.Layout(width="100%", height="480px")
         )
         full_app_layout = widgets.VBox([top_nav_bar, main_body_layout, status_bar])

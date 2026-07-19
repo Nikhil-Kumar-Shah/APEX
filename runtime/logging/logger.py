@@ -37,6 +37,22 @@ class ColoredFormatter(logging.Formatter):
         return formatter.format(record)
 
 
+class DynamicStreamProxy:
+    """Wrapper that always resolves to the active sys.stdout stream in Colab."""
+    def write(self, data: str) -> int:
+        try:
+            sys.stdout.write(data)
+            return len(data)
+        except OSError:
+            return 0
+
+    def flush(self) -> None:
+        try:
+            sys.stdout.flush()
+        except OSError:
+            pass
+
+
 def setup_logger(
     name: str = "runtime",
     log_file: Optional[Path] = None,
@@ -59,10 +75,11 @@ def setup_logger(
     if logger.handlers:
         return logger
 
-    # Console Handler
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Console Handler using DynamicStreamProxy
+    console_handler = logging.StreamHandler(DynamicStreamProxy())
     console_handler.setFormatter(ColoredFormatter())
     logger.addHandler(console_handler)
+
 
     # File Handler (if log_file path provided)
     if log_file:
