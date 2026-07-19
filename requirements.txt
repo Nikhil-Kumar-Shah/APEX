@@ -1,0 +1,4 @@
+# APEX - Development Dependencies
+
+pytest>=7.0.0
+colorama>=0.4.6

@@ -1,0 +1,20 @@
+{
+    "project_id": "beginner-mock-project",
+    "project_name": "Beginner Mock Project",
+    "runtime_version": "1.0.0",
+    "config_version": "1.0.0",
+    "directories": {
+        "cache_dir": "cache",
+        "log_dir": "logs",
+        "output_dir": "outputs"
+    },
+    "logging": {
+        "level": "INFO",
+        "console": true,
+        "file": true
+    },
+    "inference": {
+        "enabled_backends": ["mock"],
+        "default_backend": "mock"
+    }
+}
