@@ -105,9 +105,10 @@ class RepositoryManager:
         Returns:
             bool: True if structure is correct.
         """
-        required_paths = ["runtime", "configs", "tests", "requirements.txt"]
+        required_paths = ["runtime", "tests", "requirements.txt"]
         for p in required_paths:
             if not (self.target_dir / p).exists():
                 logger.warning(f"[-] Integrity validation failed: missing '{p}'")
+
                 return False
         return True
