@@ -82,6 +82,11 @@ class RuntimeDashboard:
             self.workspace_manager.create_workspace(initial_ws, config_manager.config.get("project_name", "Default Workspace"))
             self.workspace_manager.load_workspace(initial_ws)
 
+        # Initialize Orchestrator
+        from runtime.orchestrator.orchestrator import RuntimeOrchestrator
+        self.orchestrator = RuntimeOrchestrator(self.model_manager, self.workspace_manager)
+
+
     def save_settings_ui(self, form_data: Dict[str, Any]) -> bool:
         """Invoked by UI form to save settings changes to Configuration Manager.
 
@@ -352,13 +357,9 @@ class RuntimeDashboard:
                         if not model_id:
                             print("[-] Model ID cannot be empty.")
                             return
-                        print(f"[+] Initiating model download for: {model_id}...")
-                        try:
-                            self.model_manager.download_model(model_id)
-                            print("[+] Download complete.")
-                            show_models()
-                        except Exception as e:
-                            print(f"[-] Download failed: {e}")
+                        print(f"[+] Submitting background download task for: {model_id}...")
+                        self.orchestrator.submit_task("download_model", {"model_id": model_id})
+                        print("[+] Download task submitted to queue.")
 
                 dl_btn.on_click(on_download)
 
@@ -379,13 +380,9 @@ class RuntimeDashboard:
                 def on_load(b):
                     with dl_out:
                         dl_out.clear_output()
-                        print(f"[+] Loading model '{load_select.value}' into VRAM...")
-                        try:
-                            self.model_manager.load_model(load_select.value)
-                            print("[+] Model loaded successfully.")
-                            show_models()
-                        except Exception as e:
-                            print(f"[-] Loading failed: {e}")
+                        print(f"[+] Submitting model load task for '{load_select.value}'...")
+                        self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
+                        print("[+] Model load task submitted to queue.")
 
                 def on_unload(b):
                     with dl_out:
@@ -393,6 +390,7 @@ class RuntimeDashboard:
                         self.model_manager.unload_model()
                         print("[+] Model unloaded from VRAM.")
                         show_models()
+
 
                 load_btn.on_click(on_load)
                 unload_btn.on_click(on_unload)
