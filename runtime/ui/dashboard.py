@@ -292,6 +292,23 @@ class RuntimeDashboard:
 
                 display(widgets.HBox([q_refresh_btn, q_unload_btn]))
 
+                # Print Developer Task Inspector
+                if self.dev_mode:
+                    heartbeat_sec = time.time() - self.orchestrator.worker_heartbeat
+                    worker_alive = self.orchestrator.worker.is_alive()
+                    active_tasks = [t for t in self.orchestrator.task_queue.list_tasks() if t["status"] in ["QUEUED", "RUNNING", "DISPATCHED"]]
+                    
+                    dev_html = f"""
+                    <br>
+                    <div class="apex-section-heading">🛠️ Developer Task Inspector</div>
+                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                        {create_card_html("Worker Status", ICONS['runtime'], "ALIVE" if worker_alive else "DEAD", f"Heartbeat: {heartbeat_sec:.1f}s ago", "System", "success" if worker_alive else "error")}
+                        {create_card_html("Background Queue", ICONS['performance'], f"{len(active_tasks)} Active", "Processing Jobs", "Active" if active_tasks else "Idle", "success" if active_tasks else "info")}
+                    </div>
+                    """
+                    display(HTML(dev_html))
+
+
         def show_workspace(b=None):
             for k, btn in buttons.items():
                 btn.button_style = "primary" if k == "workspace" else ""

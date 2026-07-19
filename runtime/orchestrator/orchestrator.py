@@ -1,6 +1,7 @@
 """APEX Central Runtime Orchestrator managing background workers and event handlers."""
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -28,6 +29,9 @@ class RuntimeOrchestrator:
         self.notification_center = NotificationCenter()
         self.scheduler = TaskScheduler()
 
+        # Heartbeat registry
+        self.worker_heartbeat = time.time()
+
         # Task Handlers Registry
         self.handlers: Dict[str, Callable[[Task], None]] = {
             "download_model": self._handle_download_model,
@@ -35,9 +39,12 @@ class RuntimeOrchestrator:
             "sync_workspace": self._handle_sync_workspace,
         }
 
-        # Start worker thread
-        self.worker = WorkerThread(self.task_queue, self.event_dispatcher, self.handlers)
+        # Start worker thread (passing self to track heartbeats)
+        self.worker = WorkerThread(self, self.task_queue, self.event_dispatcher, self.handlers)
         self.worker.start()
+        
+        # Add background check job for stalled tasks (every 10 seconds)
+        self.scheduler.add_job(10.0, self._handle_stalled_tasks)
         
         # Start scheduler
         self.scheduler.start()
@@ -61,6 +68,17 @@ class RuntimeOrchestrator:
         task = Task(task_type, payload, priority)
         return self.task_queue.submit(task)
 
+    def _handle_stalled_tasks(self) -> None:
+        """Finds tasks that have not reported updates for more than 30 seconds and aborts them."""
+        now = time.time()
+        for t in self.task_queue._tasks.values():
+            if t.status in ["QUEUED", "RUNNING", "DISPATCHED"] and (now - t.last_updated) > 30.0:
+                logger.warning(f"[Orchestrator] Task {t.task_id} ({t.task_type}) stalled. Aborting task.")
+                t.update_status("FAILED")
+                t.error_message = "Task execution timed out (worker did not report updates)."
+                self.notification_center.notify(f"Task '{t.task_type}' stalled and was aborted.", "warning")
+                self.event_dispatcher.publish(RuntimeEvent("task_failed", t.to_dict()))
+
     # Handlers implementations
     def _handle_download_model(self, task: Task) -> None:
         model_id = task.payload.get("model_id")
@@ -72,11 +90,8 @@ class RuntimeOrchestrator:
         
         # Simulated download progress transitions
         for p in range(10, 101, 30):
-            task.progress = min(p, 100)
-            time_now = 0.1
-            task.status = "RUNNING"
+            task.update_status("RUNNING", progress=min(p, 100))
             self.event_dispatcher.publish(RuntimeEvent("task_progress", task.to_dict()))
-            import time
             time.sleep(0.2)
 
         self.model_manager.download_model(model_id)
@@ -91,7 +106,7 @@ class RuntimeOrchestrator:
         self.state_machine.transition_to("LOADING_MODEL")
         self.notification_center.notify(f"Loading weights for {model_id}...", "info")
 
-        task.progress = 50
+        task.update_status("RUNNING", progress=50)
         self.event_dispatcher.publish(RuntimeEvent("task_progress", task.to_dict()))
 
         # Call active model manager loading
@@ -99,12 +114,11 @@ class RuntimeOrchestrator:
         
         self.state_machine.transition_to("READY")
         self.notification_center.notify(f"Model {model_id} is loaded and ready.", "success")
-        task.progress = 100
+        task.update_status("COMPLETED", progress=100)
 
     def _handle_sync_workspace(self, task: Task) -> None:
         self.notification_center.notify("Workspace synchronization started", "info")
-        task.progress = 50
-        import time
+        task.update_status("RUNNING", progress=50)
         time.sleep(0.5)
-        task.progress = 100
+        task.update_status("COMPLETED", progress=100)
         self.notification_center.notify("Workspace synchronization complete", "success")
