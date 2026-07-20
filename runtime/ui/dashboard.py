@@ -108,9 +108,10 @@ class RuntimeDashboard:
         config_manager: ConfigManager,
         model_manager: ModelManager,
         health_monitor: HealthMonitor,
-        lifecycle: Any
+        lifecycle: Any,
+        orchestrator: Any = None
     ):
-        """Binds backend managers and starts background workers after the console is ready."""
+        """Binds backend managers and updates the dashboard."""
         self.config_manager = config_manager
         self.model_manager = model_manager
         self.health_monitor = health_monitor
@@ -126,8 +127,7 @@ class RuntimeDashboard:
             self.workspace_manager.create_workspace(initial_ws, config_manager.config.get("project_name", "Default Workspace"))
             self.workspace_manager.load_workspace(initial_ws)
 
-        from runtime.orchestrator.orchestrator import RuntimeOrchestrator
-        self.orchestrator = RuntimeOrchestrator(self.model_manager, self.workspace_manager)
+        self.orchestrator = orchestrator
 
     def render(self) -> Any:
         """Renders the dashboard skeleton and binds the logging widget."""
@@ -169,10 +169,10 @@ class RuntimeDashboard:
                 self.left_controls.clear_output()
                 report = self.health_monitor.generate_report()
                 active_model = report["model_manager"].get("active_model_id") or "None"
-                api_status = "Online" if self.is_api_running else "Offline"
-                worker_alive = self.orchestrator.worker.is_alive()
-                active_tasks = self.orchestrator.task_queue.list_tasks()
-                state = self.orchestrator.state_machine.current_state
+                api_status = "Online" if getattr(self, 'is_api_running', False) else "Offline"
+                worker_alive = self.orchestrator.worker.is_alive() if self.orchestrator else False
+                active_tasks = self.orchestrator.task_queue.list_tasks() if self.orchestrator else []
+                state = self.orchestrator.state_machine.current_state if self.orchestrator else "UNKNOWN"
                 
                 html = f"""
                 <div class="apex-header">Status</div>
@@ -199,18 +199,15 @@ class RuntimeDashboard:
                 self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>Workspace</div>"))
                 
-                ws_list = self.workspace_manager.list_workspaces()
+                ws_list = self.workspace_manager.list_workspaces() if self.workspace_manager else []
                 ws_options = [(w["name"], w["workspace_id"]) for w in ws_list]
-                ws_select = widgets.Dropdown(options=ws_options, value=self.workspace_manager.active_workspace_id, layout=widgets.Layout(width='90%'))
-                switch_btn = widgets.Button(description="Load Workspace", button_style="success", layout=widgets.Layout(width='90%'))
-
-                def on_switch(b):
-                    self.workspace_manager.load_workspace(ws_select.value)
-                    logger.info(f"Loaded workspace: '{ws_select.value}'", extra={"prefix": "WORKSPACE"})
-                    show_status()
-
-                switch_btn.on_click(on_switch)
-                display(widgets.VBox([ws_select, switch_btn]))
+                active_ws = self.workspace_manager.active_workspace_id if self.workspace_manager else "default"
+                
+                html = f"<div><b>Active Workspace:</b> {active_ws}</div><ul>"
+                for name, wid in ws_options:
+                    html += f"<li>{name} ({wid})</li>"
+                html += "</ul>"
+                display(HTML(html))
 
         def show_models(b=None):
             if not self.orchestrator:
@@ -222,51 +219,19 @@ class RuntimeDashboard:
                 self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>Model</div>"))
                 
-                # Single HF Model ID input — V1 simplification
-                display(HTML("<div class='apex-hint'>Hugging Face Model ID</div>"))
-                model_input = widgets.Text(
-                    placeholder="Qwen/Qwen2.5-1.5B-Instruct",
-                    layout=widgets.Layout(width='90%')
-                )
-                download_btn = widgets.Button(description="Download", button_style="warning", layout=widgets.Layout(width='90%'))
-                
-                display(HTML("<hr>"))
-
-                # Cached models dropdown for Load/Unload
-                cached = self.model_manager.list_cached_models()
+                # Read-only model list
+                cached = self.model_manager.list_cached_models() if self.model_manager else []
                 cached_ids = [m.get("model_id") for m in cached] if cached else []
                 
                 if cached_ids:
-                    display(HTML("<div class='apex-hint'>Downloaded Models</div>"))
-                    load_select = widgets.Dropdown(options=cached_ids, layout=widgets.Layout(width='90%'))
-                    load_btn = widgets.Button(description="Load Model", button_style="success", layout=widgets.Layout(width='90%'))
-                    unload_btn = widgets.Button(description="Unload", button_style="danger", layout=widgets.Layout(width='90%'))
+                    display(HTML("<div class='apex-hint'>Cached Models</div>"))
+                    html = "<ul>"
+                    for m_id in cached_ids:
+                        html += f"<li>{m_id}</li>"
+                    html += "</ul>"
+                    display(HTML(html))
                 else:
-                    load_select = None
-                    load_btn = None
-                    unload_btn = None
-
-                def on_download(b):
-                    model_id = model_input.value.strip()
-                    if model_id:
-                        logger.info(f"Submitting download: {model_id}", extra={"prefix": "MODEL"})
-                        self.orchestrator.submit_task("download_model", {"model_id": model_id})
-
-                download_btn.on_click(on_download)
-                display(widgets.VBox([model_input, download_btn]))
-
-                if load_select and load_btn and unload_btn:
-                    def on_load(b):
-                        logger.info(f"Submitting load: {load_select.value}", extra={"prefix": "MODEL"})
-                        self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
-
-                    def on_unload(b):
-                        self.model_manager.unload_model()
-                        logger.info("Model unloaded from memory.", extra={"prefix": "SUCCESS"})
-
-                    load_btn.on_click(on_load)
-                    unload_btn.on_click(on_unload)
-                    display(widgets.VBox([load_select, load_btn, unload_btn]))
+                    display(HTML("<div>No models in cache.</div>"))
 
         def show_runtime(b=None):
             if not self.orchestrator:
@@ -278,21 +243,8 @@ class RuntimeDashboard:
                 self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>Runtime API</div>"))
                 
-                start_btn = widgets.Button(description="Start API", button_style="success", layout=widgets.Layout(width='90%'))
-                stop_btn = widgets.Button(description="Stop API", button_style="danger", layout=widgets.Layout(width='90%'))
-
-                def on_start(b):
-                    self.is_api_running = True
-                    logger.info("API Server started on port 8000.", extra={"prefix": "API"})
-
-                def on_stop(b):
-                    self.is_api_running = False
-                    logger.info("API Server stopped.", extra={"prefix": "API"})
-
-                start_btn.on_click(on_start)
-                stop_btn.on_click(on_stop)
-
-                display(widgets.VBox([start_btn, stop_btn]))
+                api_status = "Online" if getattr(self, 'is_api_running', False) else "Offline"
+                display(HTML(f"<div><b>API Server:</b> {api_status}</div>"))
 
         buttons["status"].on_click(show_status)
         buttons["workspace"].on_click(show_workspace)

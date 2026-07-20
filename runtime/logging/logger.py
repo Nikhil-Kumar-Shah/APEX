@@ -170,10 +170,8 @@ def get_widget_handler() -> WidgetLogHandler:
 
 
 def remove_stream_handlers(logger: logging.Logger) -> None:
-    """Removes all stream handlers (like SafeStreamHandler) to transfer complete logging ownership to widgets."""
-    for handler in list(logger.handlers):
-        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, (logging.FileHandler, WidgetLogHandler)):
-            logger.removeHandler(handler)
+    """NO-OP in V1. We want standard streaming output in notebook cells."""
+    pass
 
 
 def setup_logger(
