@@ -177,14 +177,15 @@ class APIManager:
         # ── Step 4: Tunnel ─────────────────────────────────────────────
         if self.config.transport != "local":
             self._print(f"  Starting {self.config.transport.capitalize()} tunnel...")
-            self.tunnel.start()
+            if not self.tunnel.start():
+                return self._fail(f"{self.config.transport.capitalize()} tunnel failed to start.")
+            
             public_url = self._poll_tunnel()
             if public_url:
                 self.state.openai_url = f"{public_url}/v1"
                 self._print(f"  ✓  Tunnel connected:  {public_url}")
             else:
-                self._print("  ✗  Tunnel did not connect — using loopback URL.")
-                self.state.openai_url = f"http://127.0.0.1:{effective_port}/v1"
+                return self._fail(f"{self.config.transport.capitalize()} tunnel did not connect within timeout.")
         else:
             self.state.openai_url = f"http://127.0.0.1:{effective_port}/v1"
 
