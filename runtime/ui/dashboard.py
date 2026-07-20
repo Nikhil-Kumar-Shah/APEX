@@ -126,29 +126,54 @@ class RuntimeDashboard:
         with self.status_output:
             self.status_output.clear_output()
             
+            from runtime.api.state import RuntimeState
+            # Try to grab state if API Manager exists, else fallback
+            state_obj = None
+            if hasattr(self, 'api_manager') and self.api_manager:
+                state_obj = self.api_manager.state
+
             report = self.health_monitor.generate_report()
             active_model = report["model_manager"].get("active_model_id") or "None"
-            api_status = "Online" if self.is_api_running else "Offline"
             
-            state = "UNKNOWN"
-            queue_len = 0
+            # Use RuntimeState if available, otherwise fallback
+            if state_obj:
+                api_status = "Online" if state_obj.api_running else "Offline"
+                auth = state_obj.authentication
+                api_key = "**************" if state_obj.api_key else "None"
+                tunnel = "Connected" if state_obj.tunnel_connected else "Disconnected"
+                public_url = state_obj.public_url or "Hidden"
+                queue_len = state_obj.queue_size
+                reqs = state_obj.total_requests
+            else:
+                api_status = "Offline"
+                auth = "Disabled"
+                api_key = "None"
+                tunnel = "Disconnected"
+                public_url = "Hidden"
+                queue_len = 0
+                reqs = 0
+            
+            state_str = "UNKNOWN"
             if self.orchestrator:
-                state = self.orchestrator.state_machine.current_state
-                queue_len = len(self.orchestrator.task_queue.list_tasks())
+                state_str = self.orchestrator.state_machine.current_state
                 
             active_ws = self.workspace_manager.active_workspace_id if self.workspace_manager else "default"
-            
             gpu_name = report['gpu'].get('device_name') or 'CPU Fallback'
-            # Fake VRAM/RAM metrics to simulate live updates (in reality, read from health monitor)
+            
             html = f"""
             <div class="apex-header">Live Status</div>
             <div class="apex-card">
-                <b>State:</b> {state}<br>
+                <b>State:</b> {state_str}<br>
                 <b>Workspace:</b> {active_ws}<br>
                 <b>Model:</b> {active_model.split('/')[-1]}<br>
                 <b>GPU:</b> {gpu_name}<br>
+                <hr>
                 <b>API:</b> {api_status}<br>
-                <b>Queue:</b> {queue_len} tasks
+                <b>Auth:</b> {auth}<br>
+                <b>Key:</b> {api_key}<br>
+                <b>Tunnel:</b> {tunnel} ({public_url})<br>
+                <b>Queue:</b> {queue_len} pending<br>
+                <b>Requests:</b> {reqs}
             </div>
             """
             display(HTML(html))
