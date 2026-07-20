@@ -1,31 +1,90 @@
-"""Interactive ipywidgets dashboard for Google Colab consuming the APEX Design System."""
+"""Minimal interactive ipywidgets dashboard for Google Colab."""
 
 import logging
 import time
-import sys
-import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from runtime.config.manager import ConfigManager
 from runtime.core.health import HealthMonitor
 from runtime.model.manager import ModelManager
 from runtime.memory.workspace import WorkspaceManager
-from runtime.ui.benchmarks import BenchmarkTracker
-from runtime.ui.logs import LogViewer
-from runtime.ui.updater import UpdateChecker
-
-# Design System Imports
-from runtime.ui.colors import get_theme_css
-from runtime.ui.icons import ICONS
-from runtime.ui.theme import ThemeManager
-from runtime.ui.widgets import create_card_html, get_base_css
 
 logger = logging.getLogger("runtime.ui.dashboard")
 
 
+def get_minimal_css() -> str:
+    """Returns clean, minimal developer theme CSS."""
+    return """
+    <style>
+        .apex-dash {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            background-color: #f8f9fa;
+            border-top: 2px solid #dee2e6;
+            padding: 10px;
+            color: #212529;
+            font-size: 13px;
+        }
+        .apex-nav {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 5px;
+        }
+        .apex-btn {
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            color: #495057;
+            font-weight: bold;
+        }
+        .apex-btn:hover {
+            background-color: #dee2e6;
+        }
+        .apex-btn-primary {
+            background-color: #0d6efd;
+            color: white;
+            border-color: #0d6efd;
+        }
+        .apex-btn-primary:hover {
+            background-color: #0b5ed7;
+        }
+        .apex-btn-danger {
+            background-color: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+        .apex-btn-danger:hover {
+            background-color: #c82333;
+        }
+        .apex-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .apex-header {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #0d6efd;
+        }
+        .apex-status {
+            font-weight: bold;
+        }
+        .apex-status-success { color: #198754; }
+        .apex-status-warning { color: #fd7e14; }
+        .apex-status-error { color: #dc3545; }
+    </style>
+    """
+
+
 class RuntimeDashboard:
-    """Orchestrates drawing HTML sidebar navigation, settings categories, and metrics in notebooks."""
+    """Minimal fixed-bottom developer control panel."""
 
     def __init__(
         self,
@@ -35,44 +94,21 @@ class RuntimeDashboard:
         log_filepath: Path,
         lifecycle: Optional[Any] = None,
     ):
-        """Initializes the RuntimeDashboard.
-
-        Args:
-            config_manager: The active ConfigManager.
-            model_manager: The active ModelManager.
-            health_monitor: The active HealthMonitor.
-            log_filepath: Path to the runtime log file.
-            lifecycle: Optional active lifecycle instance.
-        """
         self.config_manager = config_manager
         self.model_manager = model_manager
         self.health_monitor = health_monitor
-        self.log_viewer = LogViewer(log_filepath)
-        self.benchmark_tracker = BenchmarkTracker()
         self.lifecycle = lifecycle
-        
-        # Load update checker
-        self.update_checker = UpdateChecker(
-            current_runtime_version="1.0.0",
-            current_config_version=config_manager.config.get("config_version", "1.0.0"),
-        )
         
         # Workspace Manager Setup
         workspaces_dir = (
-            self.lifecycle.drive_manager.project_root / "workspaces"
+            self.lifecycle.drive_manager.persistence_root / "workspaces"
             if self.lifecycle
             else Path.cwd() / "workspaces"
         )
         self.workspace_manager = WorkspaceManager(workspaces_dir)
         
         # Dynamic active stats
-        self.active_requests = 0
-        self.tokens_generated = 0
         self.is_api_running = False
-        self.dev_mode = False
-        
-        # Theme Management
-        self.theme_manager = ThemeManager(initial_dark=True)
         
         # Load active workspace from config
         initial_ws = config_manager.config.get("project_id", "default")
@@ -86,32 +122,7 @@ class RuntimeDashboard:
         from runtime.orchestrator.orchestrator import RuntimeOrchestrator
         self.orchestrator = RuntimeOrchestrator(self.model_manager, self.workspace_manager)
 
-    def save_settings_ui(self, form_data: Dict[str, Any]) -> bool:
-        """Invoked by UI form to save settings changes to Configuration Manager.
-
-        Args:
-            form_data: Parameters updated by user.
-
-        Returns:
-            bool: True if configuration was successfully validated and saved.
-        """
-        current_config = self.config_manager.config.copy()
-        if "project_id" in form_data:
-            current_config["project_id"] = form_data["project_id"]
-        if "project_name" in form_data:
-            current_config["project_name"] = form_data["project_name"]
-        try:
-            return self.config_manager.save(current_config)
-        except Exception as e:
-            logger.error(f"Failed to save settings via Dashboard UI: {e}")
-            return False
-
     def render(self) -> Any:
-        """Renders the IPython Widgets three-pane layout (nav, workspace, activity) inside notebooks.
-
-        Returns:
-            Any: The compiled ipywidgets layout or mock container if headless.
-        """
         try:
             import ipywidgets as widgets
             from IPython.display import display, HTML
@@ -120,204 +131,60 @@ class RuntimeDashboard:
             return "Headless Dashboard Instance (ipywidgets missing)"
 
         # Style injection
-        css_style_widget = widgets.HTML(get_base_css(self.theme_manager.dark_mode))
+        css_style_widget = widgets.HTML(get_minimal_css())
         display(css_style_widget)
 
-        # 1. Permanent Regions Layout
-        top_nav_bar = widgets.HTML(
-            f"<div style='background-color: var(--apex-surface); padding: 12px; border-bottom: 1px solid var(--apex-border); display: flex; justify-content: space-between; align-items: center;'>"
-            f"<div style='font-size: 20px; font-weight: bold; color: var(--apex-primary);'>{ICONS['home']} APEX Studio</div>"
-            f"<div style='color: var(--apex-text-secondary); font-size: 13px;'>Workspace: <b>{self.workspace_manager.active_workspace_id}</b> | Model: <b>{self.model_manager.active_model_id or 'None'}</b></div>"
-            f"</div>"
-        )
-
-        status_bar = widgets.HTML(
-            f"<div style='background-color: var(--apex-surface); padding: 8px; border-top: 1px solid var(--apex-border); font-size: 12px; display: flex; justify-content: space-between;'>"
-            f"<span>Status: 🟢 Ready | GPU: Active | API: {'Online' if self.is_api_running else 'Offline'}</span>"
-            f"<span>Uptime: 100% | VRAM: 5.4 / 16 GB | RAM: 32%</span>"
-            f"</div>"
-        )
-
-        # Center Workspace Content Output
         content_output = widgets.Output()
 
-
-        # Activity Center Widgets (Right Panel)
-        activity_title = widgets.HTML(
-            "<div style='font-size: 16px; font-weight: bold; color: var(--apex-primary); margin-bottom: 8px;'>Activity Center</div>"
-        )
-        task_list_output = widgets.Output()
-        
-        # Periodic refresh loop for background task cards inside the Activity Center
-        def refresh_activity_panel(b=None):
-            with task_list_output:
-                task_list_output.clear_output()
-                tasks = self.orchestrator.task_queue.list_tasks()
-                if not tasks:
-                    print("No background tasks running.")
-                for t in tasks:
-                    if t["status"] in ["QUEUED", "RUNNING"]:
-                        display(HTML(f"""
-                        <div class='apex-card' style='padding: 8px; margin: 4px 0px;'>
-                            <b>{t['task_type']}</b> - Progress: {t['progress']}%<br>
-                            <span class='apex-caption'>Status: {t['status']}</span>
-                        </div>
-                        """))
-                
-                # Notifications list
-                notifs = self.orchestrator.notification_center.notifications
-                if notifs:
-                    display(HTML("<hr style='border: 0.5px solid var(--apex-border); margin: 8px 0px;'><b>Notifications History</b>"))
-                    for n in notifs[-4:]:
-                        display(HTML(f"<div style='font-size: 12px;'>- {n['message']}</div>"))
-
-        refresh_activity_btn = widgets.Button(description="Refresh Activity", button_style="info", layout=widgets.Layout(width="95%"))
-        refresh_activity_btn.on_click(refresh_activity_panel)
-        refresh_activity_panel()
-
-        right_activity_pane = widgets.VBox(
-            [activity_title, refresh_activity_btn, task_list_output],
-            layout=widgets.Layout(width="280px", border_left="1px solid var(--apex-border)", padding="10px")
-        )
-
-        # Sidebar Widgets (Left Panel)
-        sidebar_title = widgets.HTML(
-            "<div style='font-size: 16px; font-weight: bold; color: var(--apex-primary); margin-bottom: 12px;'>Navigation</div>"
-        )
-
         buttons = {
-            "home": widgets.Button(description=f"{ICONS['home']} Home", layout=widgets.Layout(width="95%")),
-            "workspace": widgets.Button(description=f"{ICONS['workspace']} Workspace Studio", layout=widgets.Layout(width="95%")),
-            "models": widgets.Button(description=f"{ICONS['models']} Model Studio", layout=widgets.Layout(width="95%")),
-            "runtime": widgets.Button(description=f"{ICONS['runtime']} Runtime Controls", layout=widgets.Layout(width="95%")),
-            "api": widgets.Button(description=f"{ICONS['api']} API Manager", layout=widgets.Layout(width="95%")),
-            "memory": widgets.Button(description=f"{ICONS['memory']} Memory Explorer", layout=widgets.Layout(width="95%")),
-            "performance": widgets.Button(description=f"{ICONS['performance']} Performance Center", layout=widgets.Layout(width="95%")),
-            "logs": widgets.Button(description=f"{ICONS['logs']} Live Logs", layout=widgets.Layout(width="95%")),
-            "settings": widgets.Button(description=f"{ICONS['settings']} Settings Center", layout=widgets.Layout(width="95%")),
+            "home": widgets.Button(description="Home"),
+            "workspace": widgets.Button(description="Workspace"),
+            "models": widgets.Button(description="Models"),
+            "runtime": widgets.Button(description="Runtime"),
+            "developer": widgets.Button(description="Developer"),
         }
-
-        for btn in buttons.values():
-            btn.style.font_weight = "bold"
-
-        dev_toggle = widgets.ToggleButton(
-            value=self.dev_mode,
-            description="🛠 Developer Mode",
-            button_style="warning",
-            layout=widgets.Layout(width="95%", margin="20px 0px 5px 0px")
-        )
-
-        theme_toggle = widgets.ToggleButton(
-            value=self.theme_manager.dark_mode,
-            description="🌓 Dark Mode",
-            button_style="info",
-            layout=widgets.Layout(width="95%", margin="5px 0px 5px 0px")
-        )
-
-        def on_theme_changed(change):
-            self.theme_manager.set_theme(change["new"])
-            css_style_widget.value = get_base_css(change["new"])
-
-        theme_toggle.observe(on_theme_changed, "value")
-
-        def on_dev_toggle_changed(change):
-            self.dev_mode = change["new"]
-            draw_sidebar()
-
-        dev_toggle.observe(on_dev_toggle_changed, "value")
-
-        sidebar_box = widgets.VBox(layout=widgets.Layout(width="220px", border_right="1px solid var(--apex-border)", padding="10px"))
-
-        def draw_sidebar():
-            visible_btns = [sidebar_title, buttons["home"], buttons["workspace"], buttons["models"], buttons["runtime"], buttons["api"], buttons["memory"]]
-            if self.dev_mode:
-                visible_btns.append(buttons["performance"])
-                visible_btns.append(buttons["logs"])
-            visible_btns.append(buttons["settings"])
-            visible_btns.append(dev_toggle)
-            visible_btns.append(theme_toggle)
-            sidebar_box.children = visible_btns
-
-        draw_sidebar()
 
         # Screens drawing functions
         def show_home(b=None):
             for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "home" else ""
+                btn.button_style = "info" if k == "home" else ""
             
             with content_output:
                 content_output.clear_output()
                 report = self.health_monitor.generate_report()
-                active_model = report["model_manager"].get("active_model_id") or "None loaded"
+                active_model = report["model_manager"].get("active_model_id") or "None"
+                api_status = "Online" if self.is_api_running else "Offline"
+                api_color = "success" if self.is_api_running else "error"
                 
-                # Render Row 1: Workspace & General status Cards
-                row1_html = f"""
-                <div class="apex-section-heading">Workspace & Runtime Command Center</div>
-                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                    {create_card_html("Workspace", ICONS['workspace'], self.workspace_manager.active_workspace_id, "Location: Drive/Local", "Active", "success")}
-                    {create_card_html("Runtime Status", ICONS['runtime'], "Running", f"Engine: {report['model_manager'].get('engine_status', {}).get('engine_name', 'N/A')}", "Active", "success")}
-                    {create_card_html("Active Model", ICONS['models'], active_model.split('/')[-1], f"ID: {active_model}", "Loaded" if report['model_manager'].get('is_loaded') else "None", "success" if report['model_manager'].get('is_loaded') else "warning")}
-                    {create_card_html("API Server", ICONS['api'], "Running" if self.is_api_running else "Stopped", "Endpoint: :8000/v1", "Online" if self.is_api_running else "Offline", "success" if self.is_api_running else "error")}
+                html = f"""
+                <div class="apex-header">Current Status</div>
+                <div class="apex-card">
+                    <table style="width: 100%; text-align: left;">
+                        <tr>
+                            <th>Workspace</th>
+                            <th>Active Model</th>
+                            <th>GPU</th>
+                            <th>API Server</th>
+                        </tr>
+                        <tr>
+                            <td>{self.workspace_manager.active_workspace_id}</td>
+                            <td><b>{active_model.split('/')[-1]}</b></td>
+                            <td>{report['gpu'].get('device_name') or 'CPU Fallback'}</td>
+                            <td class="apex-status apex-status-{api_color}">{api_status}</td>
+                        </tr>
+                    </table>
                 </div>
                 """
-                display(HTML(row1_html))
-
-                # Render Row 2: Performance metrics Cards
-                row2_html = f"""
-                <div class="apex-section-heading">Hardware & Telemetry Diagnostics</div>
-                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                    {create_card_html("GPU Device", ICONS['gpu'], report['gpu'].get('device_name') or 'CPU Fallback', "Hardware Allocation", "Running", "success")}
-                    {create_card_html("VRAM Used", ICONS['gpu'], f"{report['gpu'].get('vram_free_mb', 0.0):.1f} MB Free", "VRAM Limit: 16GB", "Normal", "success")}
-                    {create_card_html("System RAM", ICONS['performance'], f"{report['ram'].get('percent_used', 0.0):.1f}%", f"Free: {report['ram'].get('free_gb', 0.0):.2f} GB", "Healthy", "success")}
-                    {create_card_html("Recent Activity", ICONS['logs'], "Apex Synced", "No warnings reported", "Green", "success")}
-                </div>
-                """
-                display(HTML(row2_html))
-
-                # Quick action buttons directly on home page
-                display(HTML("<div class='apex-section-heading'>Home Command Center Quick Actions</div>"))
-                q_refresh_btn = widgets.Button(description="Refresh Telemetry", button_style="info")
-                q_unload_btn = widgets.Button(description="Unload VRAM", button_style="danger")
-
-                def q_refresh(b):
-                    show_home()
-                    refresh_activity_panel()
-                q_refresh_btn.on_click(q_refresh)
-
-                def q_unload(b):
-                    self.model_manager.unload_model()
-                    show_home()
-                    refresh_activity_panel()
-                q_unload_btn.on_click(q_unload)
-
-                display(widgets.HBox([q_refresh_btn, q_unload_btn]))
-
-                # Print Developer Task Inspector
-                if self.dev_mode:
-                    heartbeat_sec = time.time() - self.orchestrator.worker_heartbeat
-                    worker_alive = self.orchestrator.worker.is_alive()
-                    active_tasks = [t for t in self.orchestrator.task_queue.list_tasks() if t["status"] in ["QUEUED", "RUNNING", "DISPATCHED"]]
-                    
-                    dev_html = f"""
-                    <br>
-                    <div class="apex-section-heading">🛠️ Developer Task Inspector</div>
-                    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                        {create_card_html("Worker Status", ICONS['runtime'], "ALIVE" if worker_alive else "DEAD", f"Heartbeat: {heartbeat_sec:.1f}s ago", "System", "success" if worker_alive else "error")}
-                        {create_card_html("Background Queue", ICONS['performance'], f"{len(active_tasks)} Active", "Processing Jobs", "Active" if active_tasks else "Idle", "success" if active_tasks else "info")}
-                    </div>
-                    """
-                    display(HTML(dev_html))
-
+                display(HTML(html))
 
         def show_workspace(b=None):
             for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "workspace" else ""
+                btn.button_style = "info" if k == "workspace" else ""
             
             with content_output:
                 content_output.clear_output()
-                display(HTML("<div class='apex-header'>Workspace Studio</div>"))
+                display(HTML("<div class='apex-header'>Workspace Configuration</div>"))
                 
-                # List workspaces
                 ws_list = self.workspace_manager.list_workspaces()
                 ws_options = [(w["name"], w["workspace_id"]) for w in ws_list]
                 
@@ -327,94 +194,28 @@ class RuntimeDashboard:
                     description="Switch WS:"
                 )
                 
-                switch_btn = widgets.Button(description="Open Workspace", button_style="success")
-                del_btn = widgets.Button(description="Delete Workspace", button_style="danger")
+                switch_btn = widgets.Button(description="Load Workspace", button_style="success")
                 ws_out = widgets.Output()
 
                 def on_switch(b):
                     with ws_out:
                         ws_out.clear_output()
                         self.workspace_manager.load_workspace(ws_select.value)
-                        ws_badge.value = f"<div style='margin-bottom: 12px;'><span class='apex-badge-active'>Active WS: {self.workspace_manager.active_workspace_id}</span></div>"
-                        print(f"[+] Loaded workspace: {ws_select.value}")
+                        print(f"Workspace loaded: {ws_select.value}")
                         show_workspace()
-                        refresh_activity_panel()
-                        
-                def on_delete(b):
-                    with ws_out:
-                        ws_out.clear_output()
-                        if ws_select.value == self.workspace_manager.active_workspace_id:
-                            print("[-] Cannot delete the active workspace!")
-                            return
-                        if self.workspace_manager.delete_workspace(ws_select.value):
-                            print(f"[+] Deleted workspace: {ws_select.value}")
-                            show_workspace()
-                            refresh_activity_panel()
-                        else:
-                            print("[-] Failed to delete workspace.")
 
                 switch_btn.on_click(on_switch)
-                del_btn.on_click(on_delete)
-
-                # Creation Wizard
-                display(HTML("<br><div class='apex-section-heading'>Create New Workspace</div>"))
-                ws_name_input = widgets.Text(description="Name:", placeholder="AI Research Team")
-                ws_desc_input = widgets.Text(description="Desc:", placeholder="General project notes")
-                create_btn = widgets.Button(description="Initialize Workspace", button_style="info")
-
-                def on_create(b):
-                    with ws_out:
-                        ws_out.clear_output()
-                        name = ws_name_input.value.strip()
-                        if not name:
-                            print("[-] Workspace Name cannot be empty.")
-                            return
-                        slug = name.lower().replace(" ", "-")
-                        self.workspace_manager.create_workspace(slug, name)
-                        print(f"[+] Workspace '{name}' initialized with slug '{slug}'.")
-                        show_workspace()
-                        refresh_activity_panel()
-
-                create_btn.on_click(on_create)
-
-                display(widgets.VBox([
-                    widgets.HBox([ws_select, switch_btn, del_btn]),
-                    ws_name_input,
-                    ws_desc_input,
-                    create_btn,
-                    ws_out
-                ]))
+                display(widgets.VBox([widgets.HBox([ws_select, switch_btn]), ws_out]))
 
         def show_models(b=None):
             for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "models" else ""
+                btn.button_style = "info" if k == "models" else ""
             
             with content_output:
                 content_output.clear_output()
-                display(HTML("<div class='apex-header'>Model Studio</div>"))
+                display(HTML("<div class='apex-header'>Model Management</div>"))
                 
-                cached = self.model_manager.list_cached_models()
-                display(HTML("<div class='apex-section-heading'>Cached / Downloaded Models</div>"))
-                
-                if not cached:
-                    display(HTML("<p>No local models cached yet.</p>"))
-                else:
-                    for m in cached:
-                        m_id = m.get('model_id')
-                        m_size = m.get('size_bytes', 0)/(1024**3)
-                        display(HTML(f"""
-                        <div class='apex-card' style='display:flex; justify-content:space-between; align-items:center;'>
-                            <div>
-                                <b>{m_id}</b><br>
-                                <span class='apex-caption'>Disk Size: {m_size:.2f} GB | Family: {m_id.split('/')[0] if '/' in m_id else 'default'}</span>
-                            </div>
-                            <span class='apex-badge-active'>Downloaded</span>
-                        </div>
-                        """))
-
-                # Download Interface
-                display(HTML("<br><div class='apex-section-heading'>Search & Download Model (Hugging Face)</div>"))
-                dl_input = widgets.Text(description="Repo ID:", placeholder="Qwen/Qwen2.5-1.5B-Instruct")
+                dl_input = widgets.Text(description="HF Repo ID:", placeholder="Qwen/Qwen2.5-1.5B-Instruct")
                 dl_btn = widgets.Button(description="Download", button_style="warning")
                 dl_out = widgets.Output()
 
@@ -423,44 +224,33 @@ class RuntimeDashboard:
                         dl_out.clear_output()
                         model_id = dl_input.value.strip()
                         if not model_id:
-                            print("[-] Model ID cannot be empty.")
+                            print("Model ID cannot be empty.")
                             return
-                        print(f"[+] Submitting background download task for: {model_id}...")
+                        print(f"Submitting download task for: {model_id}...")
                         self.orchestrator.submit_task("download_model", {"model_id": model_id})
-                        print("[+] Download task submitted to queue.")
-                        refresh_activity_panel()
 
                 dl_btn.on_click(on_download)
-
-                # Load/Unload controls
-                display(HTML("<br><div class='apex-section-heading'>Active Model Loader</div>"))
-                active_model = self.model_manager.active_model_id or "None"
-                display(HTML(f"<p>Current Loaded Model: <b>{active_model}</b></p>"))
                 
+                cached = self.model_manager.list_cached_models()
                 cached_ids = [m.get("model_id") for m in cached] if cached else []
-                # Fallback options
                 if "Qwen/Qwen2.5-1.5B-Instruct" not in cached_ids:
                     cached_ids.append("Qwen/Qwen2.5-1.5B-Instruct")
 
-                load_select = widgets.Dropdown(options=cached_ids, description="Select Model:")
-                load_btn = widgets.Button(description="Load Model", button_style="success")
-                unload_btn = widgets.Button(description="Unload Model", button_style="danger")
+                load_select = widgets.Dropdown(options=cached_ids, description="Local Models:")
+                load_btn = widgets.Button(description="Load", button_style="success")
+                unload_btn = widgets.Button(description="Unload", button_style="danger")
 
                 def on_load(b):
                     with dl_out:
                         dl_out.clear_output()
-                        print(f"[+] Submitting model load task for '{load_select.value}'...")
+                        print(f"Submitting load task for '{load_select.value}'...")
                         self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
-                        print("[+] Model load task submitted to queue.")
-                        refresh_activity_panel()
 
                 def on_unload(b):
                     with dl_out:
                         dl_out.clear_output()
                         self.model_manager.unload_model()
-                        print("[+] Model unloaded from VRAM.")
-                        show_models()
-                        refresh_activity_panel()
+                        print("Model unloaded.")
 
                 load_btn.on_click(on_load)
                 unload_btn.on_click(on_unload)
@@ -473,189 +263,66 @@ class RuntimeDashboard:
 
         def show_runtime(b=None):
             for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "runtime" else ""
+                btn.button_style = "info" if k == "runtime" else ""
             
             with content_output:
                 content_output.clear_output()
-                display(HTML("<div class='apex-header'>Runtime Control Center</div>"))
+                display(HTML("<div class='apex-header'>Runtime Controls & API</div>"))
                 
                 run_out = widgets.Output()
-                start_btn = widgets.Button(description="Start Runtime", button_style="success")
-                stop_btn = widgets.Button(description="Stop Runtime", button_style="danger")
-                restart_btn = widgets.Button(description="Restart Runtime", button_style="warning")
+                start_btn = widgets.Button(description="Start API", button_style="success")
+                stop_btn = widgets.Button(description="Stop API", button_style="danger")
 
                 def on_start(b):
                     with run_out:
                         run_out.clear_output()
-                        print("[+] Runtime services started.")
+                        self.is_api_running = True
+                        print("API Server started on port 8000.")
 
                 def on_stop(b):
                     with run_out:
                         run_out.clear_output()
-                        print("[-] Runtime services stopped.")
-
-                def on_restart(b):
-                    with run_out:
-                        run_out.clear_output()
-                        print("[+] Runtime services restarted.")
+                        self.is_api_running = False
+                        print("API Server stopped.")
 
                 start_btn.on_click(on_start)
                 stop_btn.on_click(on_stop)
-                restart_btn.on_click(on_restart)
 
-                display(widgets.VBox([
-                    widgets.HBox([start_btn, stop_btn, restart_btn]),
-                    run_out
-                ]))
+                display(widgets.VBox([widgets.HBox([start_btn, stop_btn]), run_out]))
 
-        def show_api(b=None):
+        def show_developer(b=None):
             for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "api" else ""
+                btn.button_style = "info" if k == "developer" else ""
             
             with content_output:
                 content_output.clear_output()
-                display(HTML("<div class='apex-header'>API Manager</div>"))
+                display(HTML("<div class='apex-header'>Developer Diagnostics</div>"))
                 
-                api_out = widgets.Output()
-                api_toggle_btn = widgets.Button(
-                    description="Stop API Server" if self.is_api_running else "Start API Server",
-                    button_style="danger" if self.is_api_running else "success"
-                )
-
-                def on_api_toggle(b):
-                    with api_out:
-                        api_out.clear_output()
-                        self.is_api_running = not self.is_api_running
-                        api_toggle_btn.description = "Stop API Server" if self.is_api_running else "Start API Server"
-                        api_toggle_btn.button_style = "danger" if self.is_api_running else "success"
-                        print(f"[+] API Server is now {'Running' if self.is_api_running else 'Stopped'}")
-
-                api_toggle_btn.on_click(on_api_toggle)
-
-                api_html = f"""
-                <div class='apex-card'>
-                    <h4>Server Details</h4>
-                    <p>Endpoint URL: <code>http://localhost:8000/v1</code></p>
-                    <p>Host: <code>127.0.0.1</code></p>
-                    <p>Port: <code>8000</code></p>
-                    <p>Total requests: {self.active_requests}</p>
-                    <p>Generated Tokens: {self.tokens_generated}</p>
+                heartbeat_sec = time.time() - self.orchestrator.worker_heartbeat
+                worker_alive = self.orchestrator.worker.is_alive()
+                active_tasks = self.orchestrator.task_queue.list_tasks()
+                
+                html = f"""
+                <div class="apex-card">
+                    <p><b>Worker Status:</b> {'ALIVE' if worker_alive else 'DEAD'} (Heartbeat {heartbeat_sec:.1f}s ago)</p>
+                    <p><b>Queue Depth:</b> {len(active_tasks)} tasks</p>
                 </div>
                 """
-                display(widgets.VBox([
-                    api_toggle_btn,
-                    widgets.HTML(api_html),
-                    api_out
-                ]))
-
-        def show_memory(b=None):
-            for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "memory" else ""
-            
-            with content_output:
-                content_output.clear_output()
-                display(HTML("<div class='apex-header'>Memory Explorer</div>"))
-                
-                mem_path = self.workspace_manager.active_workspace_path
-                print(f"Active Workspace Path: {mem_path}")
-                print(f"Subdirectories: conversations/, projects/, repositories/")
-
-        def show_performance(b=None):
-            for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "performance" else ""
-            
-            with content_output:
-                content_output.clear_output()
-                display(HTML("<div class='apex-header'>Performance Center</div>"))
-                
-                perf_html = """
-                <div class='apex-card'>
-                    <h4>Real-time Telemetry</h4>
-                    <p>Queue Length: <b>0</b></p>
-                    <p>Time to First Token (TTFT): <b>0.024s</b></p>
-                    <p>Throughput Speed: <b>32.4 tokens/second</b></p>
-                    <p>VRAM Allocation: <b>62.4%</b></p>
-                </div>
-                """
-                display(HTML(perf_html))
-
-        def show_logs(b=None):
-            for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "logs" else ""
-            
-            with content_output:
-                content_output.clear_output()
-                display(HTML("<div class='apex-header'>Live Logs</div>"))
-                
-                log_box = widgets.Output()
-                search_box = widgets.Text(description="Filter:")
-                refresh_btn = widgets.Button(description="Refresh Logs", button_style="info")
-
-                def load_logs(b=None):
-                    with log_box:
-                        log_box.clear_output()
-                        lines = self.log_viewer.fetch_logs(limit=25, search_query=search_box.value)
-                        for line in lines:
-                            print(line)
-
-                refresh_btn.on_click(load_logs)
-                load_logs()
-                
-                display(widgets.VBox([
-                    widgets.HBox([search_box, refresh_btn]),
-                    log_box
-                ]))
-
-        def show_settings(b=None):
-            for k, btn in buttons.items():
-                btn.button_style = "primary" if k == "settings" else ""
-            
-            with content_output:
-                content_output.clear_output()
-                display(HTML("<div class='apex-header'>Settings Center</div>"))
-                
-                config = self.config_manager.config
-                name_input = widgets.Text(description="Workspace Name:", value=config.get("project_name", "APEX"))
-                save_btn = widgets.Button(description="Save Config", button_style="success")
-                set_out = widgets.Output()
-
-                def on_save_config(b):
-                    with set_out:
-                        set_out.clear_output()
-                        config["project_name"] = name_input.value
-                        if self.config_manager.save(config):
-                            print("[+] Configuration changes saved.")
-                        else:
-                            print("[-] Error saving configuration.")
-
-                save_btn.on_click(on_save_config)
-
-                display(widgets.VBox([
-                    name_input,
-                    save_btn,
-                    set_out
-                ]))
+                display(HTML(html))
 
         # Register Navigation Callbacks
         buttons["home"].on_click(show_home)
         buttons["workspace"].on_click(show_workspace)
         buttons["models"].on_click(show_models)
         buttons["runtime"].on_click(show_runtime)
-        buttons["api"].on_click(show_api)
-        buttons["memory"].on_click(show_memory)
-        buttons["performance"].on_click(show_performance)
-        buttons["logs"].on_click(show_logs)
-        buttons["settings"].on_click(show_settings)
+        buttons["developer"].on_click(show_developer)
 
         # Show Home on Startup
         show_home()
 
-        # Render Main Panel with permanent Left Sidebar, Center Workspace, and Right Activity Center
-        main_body_layout = widgets.HBox(
-            [sidebar_box, content_output, right_activity_pane],
-            layout=widgets.Layout(width="100%", height="480px")
-        )
-        full_app_layout = widgets.VBox([top_nav_bar, main_body_layout, status_bar])
+        # Layout
+        nav_box = widgets.HBox(list(buttons.values()))
+        dashboard_layout = widgets.VBox([nav_box, content_output])
         
-        display(full_app_layout)
-        return full_app_layout
+        display(dashboard_layout)
+        return dashboard_layout

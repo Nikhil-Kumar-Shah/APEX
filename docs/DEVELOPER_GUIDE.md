@@ -27,7 +27,7 @@ Manages the environment setup and updates:
 - `logging`: File/console logging with ANSI colors.
 - `memory`: Manages workspace state, history tracking, and symbol indexing.
 - `server`: Exposes OpenAI-compatible REST API endpoints.
-- `ui`: Notebook control widgets using `ipywidgets`.
+- `ui`: Minimal notebook control panel using `ipywidgets` anchored at the bottom of the execution console.
 
 ---
 

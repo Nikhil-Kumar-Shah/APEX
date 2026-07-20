@@ -19,10 +19,10 @@ APEX operates under a **GitHub-first deployment architecture**: the core runtime
 - **Unified Runtime**: Decouples underlying inference execution from application APIs.
 - **Multi-Model Support**: Pre-configured profiles for Qwen, DeepSeek, Gemma, and GLM.
 - **Google Colab & Local Environments**: Run identical pipelines in ephemeral cloud notebooks and local hardware.
-- **Workspace Persistence**: Tracks conversation histories, symbols index directories, and projects state across notebook reconnects.
+- **Developer-First Console**: Standard notebook cell output serves as the authoritative runtime console.
+- **Minimal Control Panel**: Fixed-bottom lightweight ipywidgets dashboard for quick configuration and status checks without duplicating logs.
+- **Workspace Persistence**: Stores workspace state and configurations reliably in Google Drive while executing from the fast Colab VM.
 - **OpenAI-Compatible API**: Seamless drop-in replacement for downstream tools (Cline, Continue, Roo Code).
-- **Interactive Dashboard**: Graphical control panels built with `ipywidgets` for configurations, log outputs, and benchmarks.
-- **Diagnostics & Benchmarks**: Real-time VRAM allocation metrics, generation speeds, and latency tracking.
 
 ---
 
