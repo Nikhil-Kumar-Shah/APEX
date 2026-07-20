@@ -4,7 +4,5 @@ Adaptive Platform for Unified AI Platform Configuration, Orchestration and Works
 """
 
 
-from runtime.core.facade import APEX
-
 __version__ = "1.0.0"
-__all__ = ["__version__", "APEX"]
+__all__ = ["__version__"]
