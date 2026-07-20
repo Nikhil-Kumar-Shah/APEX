@@ -80,25 +80,33 @@ def get_minimal_css() -> str:
 class RuntimeDashboard:
     """Side-by-side developer control panel (Left: Controls, Right: Terminal Output)."""
 
-    def __init__(
+    def __init__(self):
+        """Initializes an empty dashboard (bind_managers must be called later)."""
+        self.config_manager: Optional[ConfigManager] = None
+        self.model_manager: Optional[ModelManager] = None
+        self.health_monitor: Optional[HealthMonitor] = None
+        self.lifecycle: Optional[Any] = None
+        self.workspace_manager: Optional[WorkspaceManager] = None
+        self.orchestrator: Optional[Any] = None
+        self.is_api_running = False
+        
+        self.left_controls: Optional[Any] = None
+
+    def bind_managers(
         self,
         config_manager: ConfigManager,
         model_manager: ModelManager,
         health_monitor: HealthMonitor,
-        log_filepath: Path,
-        lifecycle: Optional[Any] = None,
+        lifecycle: Any
     ):
+        """Binds backend managers and starts background workers after the console is ready."""
         self.config_manager = config_manager
         self.model_manager = model_manager
         self.health_monitor = health_monitor
         self.lifecycle = lifecycle
         
-        workspaces_dir = (
-            self.lifecycle.drive_manager.persistence_root / "workspaces"
-            if self.lifecycle else Path.cwd() / "workspaces"
-        )
+        workspaces_dir = self.lifecycle.drive_manager.persistence_root / "workspaces"
         self.workspace_manager = WorkspaceManager(workspaces_dir)
-        self.is_api_running = False
         
         initial_ws = config_manager.config.get("project_id", "default")
         try:
@@ -111,6 +119,7 @@ class RuntimeDashboard:
         self.orchestrator = RuntimeOrchestrator(self.model_manager, self.workspace_manager)
 
     def render(self) -> Any:
+        """Renders the dashboard skeleton and binds the logging widget."""
         try:
             import ipywidgets as widgets
             from IPython.display import display, HTML
@@ -121,13 +130,13 @@ class RuntimeDashboard:
         display(widgets.HTML(get_minimal_css()))
 
         # Layout containers
-        left_controls = widgets.Output()
-        left_controls.add_class('apex-left-panel')
+        self.left_controls = widgets.Output()
+        self.left_controls.add_class('apex-left-panel')
         
         right_console = widgets.Output()
         right_console.add_class('apex-right-panel')
 
-        # Bind the global logger to this right_console widget
+        # Bind the global logger to this right_console widget BEFORE anything else
         widget_handler = get_widget_handler()
         widget_handler.set_widget(right_console)
 
@@ -140,11 +149,12 @@ class RuntimeDashboard:
         }
 
         def show_status(b=None):
+            if not self.orchestrator: return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "status" else ""
             
-            with left_controls:
-                left_controls.clear_output()
+            with self.left_controls:
+                self.left_controls.clear_output()
                 report = self.health_monitor.generate_report()
                 active_model = report["model_manager"].get("active_model_id") or "None"
                 api_status = "Online" if self.is_api_running else "Offline"
@@ -166,11 +176,12 @@ class RuntimeDashboard:
                 display(HTML(html))
 
         def show_workspace(b=None):
+            if not self.orchestrator: return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "workspace" else ""
             
-            with left_controls:
-                left_controls.clear_output()
+            with self.left_controls:
+                self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>Workspace</div>"))
                 
                 ws_list = self.workspace_manager.list_workspaces()
@@ -187,11 +198,12 @@ class RuntimeDashboard:
                 display(widgets.VBox([ws_select, switch_btn]))
 
         def show_models(b=None):
+            if not self.orchestrator: return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "models" else ""
             
-            with left_controls:
-                left_controls.clear_output()
+            with self.left_controls:
+                self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>Model Controls</div>"))
                 
                 dl_input = widgets.Text(placeholder="HF Repo ID", layout=widgets.Layout(width='90%'))
@@ -225,11 +237,12 @@ class RuntimeDashboard:
                 display(widgets.VBox([dl_input, dl_btn, widgets.HTML("<hr>"), load_select, load_btn, unload_btn]))
 
         def show_runtime(b=None):
+            if not self.orchestrator: return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "runtime" else ""
             
-            with left_controls:
-                left_controls.clear_output()
+            with self.left_controls:
+                self.left_controls.clear_output()
                 display(HTML("<div class='apex-header'>API Server</div>"))
                 
                 start_btn = widgets.Button(description="Start API", button_style="success", layout=widgets.Layout(width='90%'))
@@ -253,15 +266,18 @@ class RuntimeDashboard:
         buttons["models"].on_click(show_models)
         buttons["runtime"].on_click(show_runtime)
 
-        show_status()
+        # Store the show_status method so we can call it after bind()
+        self._refresh_status = show_status
 
         nav_vbox = widgets.VBox(list(buttons.values()))
-        left_layout = widgets.VBox([nav_vbox, widgets.HTML("<hr>"), left_controls])
+        left_layout = widgets.VBox([nav_vbox, widgets.HTML("<hr>"), self.left_controls])
         left_layout.add_class('apex-left-panel')
-
-        logger.info("APEX UI Initialized.", extra={"prefix": "SYSTEM"})
-        logger.info("Console output will stream here.", extra={"prefix": "SYSTEM"})
 
         dashboard_layout = widgets.HBox([left_layout, right_console], layout=widgets.Layout(width='100%'))
         display(dashboard_layout)
         return dashboard_layout
+
+    def refresh(self):
+        """Refreshes the active UI tab (called after bind)."""
+        if hasattr(self, '_refresh_status'):
+            self._refresh_status()

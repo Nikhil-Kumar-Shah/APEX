@@ -1,6 +1,7 @@
 """Bootstrapping installation wizard."""
 
 import sys
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -9,6 +10,8 @@ from bootstrap.dependency_manager import DependencyInstaller
 from bootstrap.repository_manager import RepositoryManager
 from bootstrap.version_manager import VersionManager
 from bootstrap.validator import SystemValidator
+
+logger = logging.getLogger("bootstrap.installer")
 
 
 class InstallationWizard:
@@ -42,18 +45,18 @@ class InstallationWizard:
         Returns:
             Optional[Path]: Target project repository directory path.
         """
-        print("\n" + "=" * 50)
-        print("            APEX Installation Wizard")
-        print("=" * 50)
+        logger.info("=" * 50, extra={"prefix": "SYSTEM"})
+        logger.info("APEX Installation Wizard", extra={"prefix": "SYSTEM"})
+        logger.info("=" * 50, extra={"prefix": "SYSTEM"})
 
         # 1. Choose location
         target_dir = self.workspace_parent_dir / "APEX"
         if interactive and sys.stdin.isatty():
             choice = input("Install to persistent Google Drive? (y/n) [n]: ").strip().lower()
             if choice == "y":
-                print("[!] Note: Source code and runtime now always install to local VM storage for performance.")
+                logger.info("Note: Source code and runtime now always install to local VM storage for performance.", extra={"prefix": "WARNING"})
 
-        print(f"[+] Target Installation Directory: {target_dir}")
+        logger.info(f"Target Installation Directory: {target_dir}", extra={"prefix": "SYSTEM"})
 
         # 2. Check Repository
         repo_mgr = RepositoryManager(target_dir, self.repo_url)
@@ -63,35 +66,35 @@ class InstallationWizard:
         if not repo_mgr.is_cloned():
             success = repo_mgr.clone()
             if not success:
-                print("[-] Installation failed during Git clone. Check network status.")
+                logger.error("Installation failed during Git clone. Check network status.", extra={"prefix": "ERROR"})
                 return None
         else:
-            print("[+] Existing repository detected.")
+            logger.info("Existing repository detected.", extra={"prefix": "SUCCESS"})
             # Run fetch update
             repo_mgr.update()
 
         # Checkout target version ref
         success = repo_mgr.checkout(checkout_ref)
         if not success:
-            print(f"[-] Requested release or tag '{checkout_ref}' not found. Continuing with the default branch.")
+            logger.warning(f"Requested release or tag '{checkout_ref}' not found. Continuing with the default branch.", extra={"prefix": "WARNING"})
             repo_mgr.checkout(BootstrapConfig().default_branch)
 
         # 3. Validate structure
         validator = SystemValidator(target_dir)
         if not validator.validate_manifest():
-            print("[-] Repository structure is invalid or corrupted.")
+            logger.error("Repository structure is invalid or corrupted.", extra={"prefix": "ERROR"})
             return None
 
         # 4. Install dependencies
         dep_installer = DependencyInstaller(target_dir / "requirements.txt")
-        print("[+] Installing Python package dependencies...")
+        logger.info("Installing Python package dependencies...", extra={"prefix": "SYSTEM"})
         if not dep_installer.install_requirements():
-            print("[-] Failed to install requirements. Attempting fallback launch...")
+            logger.warning("Failed to install requirements. Attempting fallback launch...", extra={"prefix": "WARNING"})
 
         # 5. Initialize config directories
         config_path = target_dir / "workspaces" / "default" / "config.json"
         validator.validate_and_repair_configuration(config_path)
 
-        print("[+] Installation and verification complete.")
-        print("=" * 50 + "\n")
+        logger.info("Installation and verification complete.", extra={"prefix": "SUCCESS"})
+        logger.info("=" * 50, extra={"prefix": "SYSTEM"})
         return target_dir

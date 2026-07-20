@@ -107,6 +107,16 @@ class SafeStreamHandler(logging.StreamHandler):
         except Exception:
             self.is_broken = True
 
+    def flush(self) -> None:
+        if self.is_broken:
+            return
+        try:
+            super().flush()
+        except OSError:
+            self.is_broken = True
+        except Exception:
+            self.is_broken = True
+
 
 class SafeFileHandler(logging.FileHandler):
     """A FileHandler that disables itself if the underlying file system disconnects (Drive safe)."""
@@ -120,6 +130,16 @@ class SafeFileHandler(logging.FileHandler):
             return
         try:
             super().emit(record)
+        except OSError:
+            self.is_broken = True
+        except Exception:
+            self.is_broken = True
+
+    def flush(self) -> None:
+        if self.is_broken:
+            return
+        try:
+            super().flush()
         except OSError:
             self.is_broken = True
         except Exception:
@@ -147,6 +167,13 @@ _global_widget_handler = WidgetLogHandler()
 
 def get_widget_handler() -> WidgetLogHandler:
     return _global_widget_handler
+
+
+def remove_stream_handlers(logger: logging.Logger) -> None:
+    """Removes all stream handlers (like SafeStreamHandler) to transfer complete logging ownership to widgets."""
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, (logging.FileHandler, WidgetLogHandler)):
+            logger.removeHandler(handler)
 
 
 def setup_logger(

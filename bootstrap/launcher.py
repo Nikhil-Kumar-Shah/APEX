@@ -43,32 +43,43 @@ class RuntimeLauncher:
             from runtime.model.manager import ModelManager
             from runtime.core.health import HealthMonitor
             
-            # Dynamic UI Registry
+            # 1. UI Registry and Dashboard Initialization (BEFORE Lifecycle)
             from runtime.ui import ui_registry
             ui_registry.load_all()
             dashboard_module = ui_registry.get_module("dashboard")
 
+            dashboard = None
+            if dashboard_module and hasattr(dashboard_module, "RuntimeDashboard"):
+                dashboard = dashboard_module.RuntimeDashboard()
+                dashboard.render()
+
+                # Remove standard output streaming immediately so logs go purely to widget
+                from runtime.logging.logger import remove_stream_handlers, logging
+                remove_stream_handlers(logging.getLogger("runtime"))
+                remove_stream_handlers(logging.getLogger("bootstrap"))
+
             logger.info(f"Launching runtime from: {self.repository_path}", extra={"prefix": "SYSTEM"})
             
-            # Start runtime lifecycle
+            # 2. Start runtime lifecycle
             lifecycle = RuntimeLifecycle(workspace_path=self.repository_path)
             success = lifecycle.startup(interactive=False)
             if not success:
                 logger.error("Runtime lifecycle startup failed.", extra={"prefix": "ERROR"})
                 return False
 
-            # Initialize GUI dashboard if run in notebook environment
+            # 3. Initialize managers and bind to Dashboard
             cache_path = lifecycle.drive_manager.get_path("cache")
-            log_path = lifecycle.drive_manager.get_path("logs/runtime.log")
-
             model_mgr = ModelManager(cache_path)
             health_mon = HealthMonitor(cache_path, model_mgr)
 
-            if dashboard_module and hasattr(dashboard_module, "RuntimeDashboard"):
-                dashboard = dashboard_module.RuntimeDashboard(
-                    lifecycle.config_manager, model_mgr, health_mon, log_path, lifecycle=lifecycle
+            if dashboard:
+                dashboard.bind_managers(
+                    config_manager=lifecycle.config_manager,
+                    model_manager=model_mgr,
+                    health_monitor=health_mon,
+                    lifecycle=lifecycle
                 )
-                dashboard.render()
+                dashboard.refresh()
             else:
                 logger.warning("RuntimeDashboard UI module unavailable. Running headless.", extra={"prefix": "WARNING"})
             

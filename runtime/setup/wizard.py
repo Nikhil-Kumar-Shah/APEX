@@ -1,12 +1,15 @@
 """Setup Wizard for configuring the Universal Colab Runtime."""
 
 import sys
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from runtime.config.manager import ConfigManager
 from runtime.config.schema import DEFAULT_CONFIG_TEMPLATE
 from runtime.validation.validators import ConfigValidator, ValidationError
+
+logger = logging.getLogger("runtime.setup")
 
 
 class SetupWizard:
@@ -55,20 +58,20 @@ class SetupWizard:
         if custom_answers:
             answers.update(custom_answers)
 
-        print("\n" + "=" * 50)
-        print("          Universal Colab Runtime Setup")
-        print("=" * 50)
+        logger.info("=" * 50, extra={"prefix": "SYSTEM"})
+        logger.info("Universal Colab Runtime Setup", extra={"prefix": "SYSTEM"})
+        logger.info("=" * 50, extra={"prefix": "SYSTEM"})
 
         if not interactive or not sys.stdin.isatty():
             if not interactive:
-                print("Running in non-interactive mode. Generating defaults...")
+                logger.info("Running in non-interactive mode. Generating defaults...", extra={"prefix": "SYSTEM"})
             else:
-                print("Interactive terminal not detected. Generating defaults...")
+                logger.info("Interactive terminal not detected. Generating defaults...", extra={"prefix": "SYSTEM"})
             try:
                 ConfigValidator.validate(answers)
                 return self.config_manager.save(answers)
             except ValidationError as e:
-                print(f"[-] Validation error on default values: {e}")
+                logger.error(f"Validation error on default values: {e}", extra={"prefix": "ERROR"})
                 return False
 
         # Interactive setup
@@ -92,9 +95,9 @@ class SetupWizard:
                     answers[key] = val
                     break
                 except ValidationError as e:
-                    print(f"[-] Invalid input: {e}. Please try again.")
+                    logger.warning(f"Invalid input: {e}. Please try again.", extra={"prefix": "WARNING"})
                 except (KeyboardInterrupt, EOFError):
-                    print("\n[-] Setup cancelled by user. Using default template configuration.")
+                    logger.warning("Setup cancelled by user. Using default template configuration.", extra={"prefix": "WARNING"})
                     break
 
         # Ask about default logging level
@@ -106,11 +109,11 @@ class SetupWizard:
             ConfigValidator.validate(answers)
             success = self.config_manager.save(answers)
             if success:
-                print(f"[+] Configuration successfully written to: {self.config_manager.config_path}")
+                logger.info(f"Configuration successfully written to: {self.config_manager.config_path}", extra={"prefix": "SUCCESS"})
                 return True
             else:
-                print("[-] Failed to write configuration file.")
+                logger.error("Failed to write configuration file.", extra={"prefix": "ERROR"})
                 return False
         except ValidationError as e:
-            print(f"[-] Configuration validation failed: {e}")
+            logger.error(f"Configuration validation failed: {e}", extra={"prefix": "ERROR"})
             return False

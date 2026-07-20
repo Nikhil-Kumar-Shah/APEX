@@ -54,9 +54,7 @@ def test_runtime_dashboard_headless(tmp_path: Path):
     dashboard_module = registry.load("dashboard")
     assert dashboard_module is not None
     
-    dashboard = dashboard_module.RuntimeDashboard(
-        config_manager, model_mgr, health_mon, tmp_path / "runtime.log"
-    )
+    dashboard = dashboard_module.RuntimeDashboard()
 
     # Test headless render execution (should return string/mock object without throwing error)
     res = dashboard.render()
