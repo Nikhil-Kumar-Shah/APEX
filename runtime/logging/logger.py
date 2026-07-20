@@ -1,5 +1,4 @@
-"""Logging module for APEX."""
-
+"""Logging module for APEX with safe, resilient handlers."""
 
 import logging
 import sys
@@ -37,6 +36,42 @@ class ColoredFormatter(logging.Formatter):
         return formatter.format(record)
 
 
+class SafeStreamHandler(logging.StreamHandler):
+    """A StreamHandler that disables itself if the underlying stream is disconnected (Colab safe)."""
+    
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        self.is_broken = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.is_broken:
+            return
+        try:
+            super().emit(record)
+        except OSError:
+            self.is_broken = True
+        except Exception:
+            self.is_broken = True
+
+
+class SafeFileHandler(logging.FileHandler):
+    """A FileHandler that disables itself if the underlying file system disconnects (Drive safe)."""
+    
+    def __init__(self, filename, mode='a', encoding=None, delay=False):
+        super().__init__(filename, mode, encoding, delay)
+        self.is_broken = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.is_broken:
+            return
+        try:
+            super().emit(record)
+        except OSError:
+            self.is_broken = True
+        except Exception:
+            self.is_broken = True
+
+
 class DynamicStreamProxy:
     """Wrapper that always resolves to the active sys.stdout stream in Colab."""
     def write(self, data: str) -> int:
@@ -58,7 +93,7 @@ def setup_logger(
     log_file: Optional[Path] = None,
     level: int = logging.INFO,
 ) -> logging.Logger:
-    """Configures and retrieves the logger.
+    """Configures and retrieves the logger with resilient handlers.
 
     Args:
         name: Name of the logger.
@@ -75,8 +110,8 @@ def setup_logger(
     if logger.handlers:
         return logger
 
-    # Console Handler using DynamicStreamProxy
-    console_handler = logging.StreamHandler(DynamicStreamProxy())
+    # Console Handler using SafeStreamHandler + DynamicStreamProxy
+    console_handler = SafeStreamHandler(DynamicStreamProxy())
     console_handler.setFormatter(ColoredFormatter())
     logger.addHandler(console_handler)
 
@@ -85,12 +120,13 @@ def setup_logger(
     if log_file:
         try:
             log_file.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+            file_handler = SafeFileHandler(str(log_file), encoding="utf-8")
             file_fmt = "[%(asctime)s] [%(levelname)s] (%(name)s) %(filename)s:%(lineno)d: %(message)s"
             file_formatter = logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S")
             file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
         except OSError as e:
-            logger.warning(f"Could not create file log handler: {e}")
+            # We don't bubble this up or log recursively, just skip file logging.
+            pass
 
     return logger

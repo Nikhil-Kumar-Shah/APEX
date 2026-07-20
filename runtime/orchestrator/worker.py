@@ -60,7 +60,7 @@ class WorkerThread(threading.Thread):
                 continue
 
             # Run Task
-            task.update_status("DISPATCHED", progress=10)
+            task.update_status("PREPARING", progress=10)
             task.start_time = time.time()
             self.event_dispatcher.publish(RuntimeEvent("task_started", task.to_dict()))
 
@@ -74,12 +74,13 @@ class WorkerThread(threading.Thread):
                 continue
 
             try:
-                # Transition status to RUNNING
-                task.update_status("RUNNING", progress=20)
+                # The handler itself is responsible for emitting granular lifecycle events:
+                # DOWNLOADING -> VERIFYING -> LOADING TOKENIZER -> INITIALIZING MODEL -> MOVING TO GPU
                 handler(task)
                 
-                if task.status == "RUNNING":
-                    task.update_status("COMPLETED", progress=100)
+                # If the handler successfully finished and didn't fail it
+                if task.status != "FAILED":
+                    task.update_status("READY", progress=100)
                     task.completion_time = time.time()
                     self.event_dispatcher.publish(RuntimeEvent("task_finished", task.to_dict()))
             except Exception as e:
