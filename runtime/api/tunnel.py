@@ -24,13 +24,13 @@ class TunnelManager:
 
     def start(self):
         """Starts the configured tunnel provider."""
-        if not self.config.enable_tunnel:
+        if self.config.transport == "local":
             return
 
-        if self.config.tunnel_provider.lower() == "cloudflare":
+        if self.config.transport.lower() == "cloudflare":
             self._start_cloudflare()
         else:
-            logger.warning(f"Unsupported tunnel provider: {self.config.tunnel_provider}")
+            logger.warning(f"Unsupported transport: {self.config.transport}")
 
     def _start_cloudflare(self):
         """Starts a Cloudflare quick tunnel via cloudflared."""
@@ -38,7 +38,7 @@ class TunnelManager:
             logger.info("Starting Cloudflare tunnel...", extra={"prefix": "SYSTEM"})
             # In a real environment, we'd check if cloudflared is installed.
             # Assuming it is installed by the bootstrap or environment.
-            cmd = ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{self.config.port}"]
+            cmd = ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{self.state.port}"]
             
             # cloudflared writes logs to stderr
             self.process = subprocess.Popen(

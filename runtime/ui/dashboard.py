@@ -137,15 +137,16 @@ class RuntimeDashboard:
             # Use RuntimeState if available, otherwise fallback
             if state_obj:
                 api_status = state_obj.api_status.value  # STOPPED / STARTING / VERIFYING / RUNNING / FAILED
-                auth = state_obj.authentication
-                api_key = "**************" if state_obj.api_key else "None"
-                tunnel = "Connected" if state_obj.tunnel_connected else "Disconnected"
+                transport = self.api_manager.config.transport.capitalize() if hasattr(self, 'api_manager') and self.api_manager else "Local"
+                openai_compatible = "Yes" if hasattr(self, 'api_manager') and self.api_manager and self.api_manager.config.openai_compatible else "No"
+                auth = "Enabled" if hasattr(self, 'api_manager') and self.api_manager and self.api_manager.config.enable_auth else "Disabled"
                 openai_url = state_obj.openai_url or "—"
                 queue_len = state_obj.queue_size
                 reqs = state_obj.total_requests
                 health_ms = f"{state_obj.last_health_ms:.0f} ms" if state_obj.last_health_ms else "—"
                 last_error = state_obj.last_error or "None"
-                colab_warn = " ⚠ Colab: tunnel required for browser access" if state_obj.is_colab and not state_obj.tunnel_connected else ""
+                is_local = hasattr(self, 'api_manager') and self.api_manager and self.api_manager.config.transport == "local"
+                colab_warn = " ⚠ Colab: tunnel required for browser access" if state_obj.is_colab and is_local else ""
                 # Colour-code API status
                 status_colors = {
                     "STOPPED": "#6c757d",
@@ -158,9 +159,9 @@ class RuntimeDashboard:
             else:
                 api_status = "STOPPED"
                 api_color = "#6c757d"
+                transport = "Local"
                 auth = "Disabled"
-                api_key = "None"
-                tunnel = "Disconnected"
+                openai_compatible = "Yes"
                 openai_url = "—"
                 queue_len = 0
                 reqs = 0
@@ -183,11 +184,12 @@ class RuntimeDashboard:
                 <b>Model:</b> {active_model.split('/')[-1]}<br>
                 <b>GPU:</b> {gpu_name}<br>
                 <hr>
-                <b>API:</b> <span style="color:{api_color}; font-weight:bold">{api_status}</span>{colab_warn}<br>
-                <b>Auth:</b> {auth}<br>
-                <b>Key:</b> {api_key}<br>
-                <b>Tunnel:</b> {tunnel}<br>
-                <b>Endpoint:</b> {openai_url}<br>
+                <b>Transport:</b> {transport}{colab_warn}<br>
+                <b>Status:</b> <span style="color:{api_color}; font-weight:bold">{api_status}</span><br>
+                <b>Internal Endpoint:</b> (hidden)<br>
+                <b>Public Endpoint:</b> {openai_url}<br>
+                <b>Authentication:</b> {auth}<br>
+                <b>OpenAI Compatible:</b> {openai_compatible}<br>
                 <b>Health:</b> {health_ms}<br>
                 <hr>
                 <b>Queue:</b> {queue_len} pending<br>

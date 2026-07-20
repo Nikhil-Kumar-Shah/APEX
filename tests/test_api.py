@@ -150,7 +150,7 @@ def test_api_manager_fails_on_occupied_unhealthy_port():
             pass
 
     try:
-        config = APIConfig(api_enabled=True, port=base)
+        config = APIConfig(api_enabled=True, internal_port=base)
         state = RuntimeState()
         mgr = APIManager(config, state, MockModelManager())
         result = mgr.start()

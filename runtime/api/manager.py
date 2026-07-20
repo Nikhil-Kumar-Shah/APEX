@@ -140,7 +140,7 @@ class APIManager:
         self.state.api_status = APIStatus.STARTING
 
         # ── Colab warning ──────────────────────────────────────────────
-        if self.state.is_colab and not self.config.enable_tunnel:
+        if self.state.is_colab and self.config.transport == "local":
             self._print(
                 "⚠  Google Colab detected — tunnel is disabled.\n"
                 "   Browsers on your machine CANNOT reach 127.0.0.1.\n"
@@ -148,17 +148,18 @@ class APIManager:
             )
 
         # ── Step 1: Port negotiation ───────────────────────────────────
-        effective_port = self._negotiate_port(self.config.port)
+        effective_port = self._negotiate_port(self.config.internal_port)
         if effective_port is None:
+            base = self.config.internal_port or 8000
             return self._fail(
-                f"No free port found in range {self.config.port}–"
-                f"{self.config.port + _PORT_SEARCH_RANGE - 1}."
+                f"No free port found in range {base}–"
+                f"{base + _PORT_SEARCH_RANGE - 1}."
             )
         self._active_port = effective_port
         self.state.port = effective_port
 
         # ── Step 2: Launch Uvicorn ─────────────────────────────────────
-        self._print(f"Launching FastAPI on {self.config.host}:{effective_port}...")
+        self._print(f"Launching FastAPI on {self.config.internal_host}:{effective_port}...")
         if not self._launch_uvicorn(effective_port):
             return self._fail("Uvicorn failed to bind within the timeout.")
         self._print(f"  ✓  Uvicorn bound on port {effective_port}")
@@ -174,8 +175,8 @@ class APIManager:
         self._print(f"  ✓  Health verified  ({latency:.0f} ms)")
 
         # ── Step 4: Tunnel ─────────────────────────────────────────────
-        if self.config.enable_tunnel:
-            self._print(f"  Starting {self.config.tunnel_provider.capitalize()} tunnel...")
+        if self.config.transport != "local":
+            self._print(f"  Starting {self.config.transport.capitalize()} tunnel...")
             self.tunnel.start()
             public_url = self._poll_tunnel()
             if public_url:
@@ -229,7 +230,7 @@ class APIManager:
     # Port negotiation                                                     #
     # ------------------------------------------------------------------ #
 
-    def _negotiate_port(self, requested: int) -> Optional[int]:
+    def _negotiate_port(self, requested: Optional[int]) -> Optional[int]:
         """
         Determines which port to use.
 
@@ -238,6 +239,10 @@ class APIManager:
           B. Port is occupied + healthy existing server → reuse it (print notice).
           C. Port is occupied + unhealthy → try to free, then auto-select.
         """
+        if requested is None:
+            base = 8000
+            return _find_free_port(base)
+
         if not _is_port_occupied("127.0.0.1", requested):
             return requested
 
@@ -280,7 +285,7 @@ class APIManager:
         """
         uconfig = uvicorn.Config(
             app=self.app,
-            host=self.config.host,
+            host=self.config.internal_host,
             port=port,
             log_level="error",
             access_log=False,
