@@ -126,7 +126,6 @@ class RuntimeDashboard:
         with self.status_output:
             self.status_output.clear_output()
             
-            from runtime.api.state import RuntimeState
             # Try to grab state if API Manager exists, else fallback
             state_obj = None
             if hasattr(self, 'api_manager') and self.api_manager:
@@ -137,25 +136,41 @@ class RuntimeDashboard:
             
             # Use RuntimeState if available, otherwise fallback
             if state_obj:
-                api_status = "Online" if state_obj.api_running else "Offline"
+                api_status = state_obj.api_status.value  # STOPPED / STARTING / VERIFYING / RUNNING / FAILED
                 auth = state_obj.authentication
                 api_key = "**************" if state_obj.api_key else "None"
                 tunnel = "Connected" if state_obj.tunnel_connected else "Disconnected"
-                public_url = state_obj.public_url or "Hidden"
+                openai_url = state_obj.openai_url or "—"
                 queue_len = state_obj.queue_size
                 reqs = state_obj.total_requests
+                health_ms = f"{state_obj.last_health_ms:.0f} ms" if state_obj.last_health_ms else "—"
+                last_error = state_obj.last_error or "None"
+                colab_warn = " ⚠ Colab: tunnel required for browser access" if state_obj.is_colab and not state_obj.tunnel_connected else ""
+                # Colour-code API status
+                status_colors = {
+                    "STOPPED": "#6c757d",
+                    "STARTING": "#ffc107",
+                    "VERIFYING": "#0dcaf0",
+                    "RUNNING": "#28a745",
+                    "FAILED": "#dc3545",
+                }
+                api_color = status_colors.get(api_status, "#d4d4d4")
             else:
-                api_status = "Offline"
+                api_status = "STOPPED"
+                api_color = "#6c757d"
                 auth = "Disabled"
                 api_key = "None"
                 tunnel = "Disconnected"
-                public_url = "Hidden"
+                openai_url = "—"
                 queue_len = 0
                 reqs = 0
+                health_ms = "—"
+                last_error = "None"
+                colab_warn = ""
             
-            state_str = "UNKNOWN"
+            runtime_state_str = "UNKNOWN"
             if self.orchestrator:
-                state_str = self.orchestrator.state_machine.current_state
+                runtime_state_str = self.orchestrator.state_machine.current_state
                 
             active_ws = self.workspace_manager.active_workspace_id if self.workspace_manager else "default"
             gpu_name = report['gpu'].get('device_name') or 'CPU Fallback'
@@ -163,17 +178,21 @@ class RuntimeDashboard:
             html = f"""
             <div class="apex-header">Live Status</div>
             <div class="apex-card">
-                <b>State:</b> {state_str}<br>
+                <b>State:</b> {runtime_state_str}<br>
                 <b>Workspace:</b> {active_ws}<br>
                 <b>Model:</b> {active_model.split('/')[-1]}<br>
                 <b>GPU:</b> {gpu_name}<br>
                 <hr>
-                <b>API:</b> {api_status}<br>
+                <b>API:</b> <span style="color:{api_color}; font-weight:bold">{api_status}</span>{colab_warn}<br>
                 <b>Auth:</b> {auth}<br>
                 <b>Key:</b> {api_key}<br>
-                <b>Tunnel:</b> {tunnel} ({public_url})<br>
+                <b>Tunnel:</b> {tunnel}<br>
+                <b>Endpoint:</b> {openai_url}<br>
+                <b>Health:</b> {health_ms}<br>
+                <hr>
                 <b>Queue:</b> {queue_len} pending<br>
-                <b>Requests:</b> {reqs}
+                <b>Requests:</b> {reqs}<br>
+                <b>Last Error:</b> {last_error}
             </div>
             """
             display(HTML(html))
