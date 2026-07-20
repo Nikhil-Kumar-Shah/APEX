@@ -52,7 +52,7 @@ class VersionManager:
 
         if self.selected_version == "stable":
             if has_tags:
-                return "v1.0.0"
+                return tags[-1]  # Return the latest tag instead of a hardcoded string
             else:
                 logger.info("No release tags found in repository. Auto-enabling Development Mode.")
                 return DEFAULT_BRANCH

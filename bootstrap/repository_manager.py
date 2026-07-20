@@ -100,7 +100,7 @@ class RepositoryManager:
             return False
 
     def validate_integrity(self) -> bool:
-        """Validates that key folders (runtime, configs, tests) are present.
+        """Validates that key folders (runtime, tests) are present.
 
         Returns:
             bool: True if structure is correct.

@@ -39,7 +39,11 @@ class RuntimeLauncher:
             from runtime.core.lifecycle import RuntimeLifecycle
             from runtime.model.manager import ModelManager
             from runtime.core.health import HealthMonitor
-            from runtime.ui.dashboard import RuntimeDashboard
+            
+            # Dynamic UI Registry
+            from runtime.ui import ui_registry
+            ui_registry.load_all()
+            dashboard_module = ui_registry.get_module("dashboard")
 
             print(f"[+] Launching runtime from: {self.repository_path}")
             
@@ -57,8 +61,13 @@ class RuntimeLauncher:
             model_mgr = ModelManager(cache_path)
             health_mon = HealthMonitor(cache_path, model_mgr)
 
-            dashboard = RuntimeDashboard(lifecycle.config_manager, model_mgr, health_mon, log_path, lifecycle=lifecycle)
-            dashboard.render()
+            if dashboard_module and hasattr(dashboard_module, "RuntimeDashboard"):
+                dashboard = dashboard_module.RuntimeDashboard(
+                    lifecycle.config_manager, model_mgr, health_mon, log_path, lifecycle=lifecycle
+                )
+                dashboard.render()
+            else:
+                print("[!] RuntimeDashboard UI module unavailable. Running headless.")
             
             return True
         except ImportError as e:

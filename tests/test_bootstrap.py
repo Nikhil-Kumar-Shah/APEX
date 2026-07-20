@@ -18,7 +18,7 @@ def test_bootstrap_version_manager():
     """Checks version resolution targets for branches/commits/stable tag modes."""
     vm = VersionManager("stable")
     # stable resolves to main if no tags exist
-    assert vm.get_checkout_ref() in ["v1.0.0", "main"]
+    assert vm.get_checkout_ref() == "main"
 
     vm_latest = VersionManager("latest")
     assert vm_latest.get_checkout_ref() == "main"
@@ -82,7 +82,7 @@ def test_system_validator(tmp_path: Path):
     assert validator.validate_manifest()
 
     # Config repair
-    config_path = tmp_path / "configs" / "apex.config.json"
+    config_path = tmp_path / "workspaces" / "default" / "config.json"
     assert validator.validate_and_repair_configuration(config_path)
     assert config_path.is_file()
 

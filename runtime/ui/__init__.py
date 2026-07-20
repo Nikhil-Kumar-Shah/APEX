@@ -1,13 +1,17 @@
 """UI and dashboard presentation package."""
 
-from runtime.ui.dashboard import RuntimeDashboard
-from runtime.ui.benchmarks import BenchmarkTracker
-from runtime.ui.logs import LogViewer
-from runtime.ui.updater import UpdateChecker
+from runtime.ui.registry import UIRegistry
+
+# Initialize global UI registry
+ui_registry = UIRegistry()
+
+# Register core UI modules dynamically
+ui_registry.register("dashboard", "runtime.ui.dashboard")
+ui_registry.register("benchmarks", "runtime.ui.benchmarks")
+ui_registry.register("logs", "runtime.ui.logs")
+ui_registry.register("updater", "runtime.ui.updater")
 
 __all__ = [
-    "RuntimeDashboard",
-    "BenchmarkTracker",
-    "LogViewer",
-    "UpdateChecker",
+    "ui_registry",
+    "UIRegistry"
 ]

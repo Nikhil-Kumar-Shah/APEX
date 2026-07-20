@@ -77,7 +77,7 @@ class DriveManager:
         """Resolves a relative path against the project or persistence root.
 
         Args:
-            relative_path: Relative path string (e.g., 'configs/project.json').
+            relative_path: Relative path string (e.g., 'workspaces/default/config.json').
             persistent: Whether to use the persistent drive root.
 
         Returns:

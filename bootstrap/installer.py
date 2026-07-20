@@ -89,7 +89,7 @@ class InstallationWizard:
             print("[-] Failed to install requirements. Attempting fallback launch...")
 
         # 5. Initialize config directories
-        config_path = target_dir / "configs" / "apex.config.json"
+        config_path = target_dir / "workspaces" / "default" / "config.json"
         validator.validate_and_repair_configuration(config_path)
 
         print("[+] Installation and verification complete.")

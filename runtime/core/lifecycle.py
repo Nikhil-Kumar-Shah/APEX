@@ -55,9 +55,10 @@ class RuntimeLifecycle:
             persistence_root = self.drive_manager.persistence_root
             print(f"[+] Persistence Root: {persistence_root}")
 
-            config_dir = persistence_root / "configs"
+            # Always initialize the config from persistence root (Google Drive if mounted)
+            config_dir = persistence_root / "workspaces" / "default"
             config_dir.mkdir(parents=True, exist_ok=True)
-            config_file = config_dir / "apex.config.json"
+            config_file = config_dir / "config.json"
 
 
             # 4. Configuration Detection & Setup Wizard
