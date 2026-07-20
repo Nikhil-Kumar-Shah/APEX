@@ -1,6 +1,7 @@
 """Centralized Bootstrap Orchestrator."""
 
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,8 +26,8 @@ class BootstrapManager:
     """Single orchestrator that manages APEX initialization."""
 
     def __init__(self, context: RuntimeContext):
-        self.context = context
         self.config = BootstrapConfig()
+        self.context = context
 
     def launch(self) -> None:
         """Executes the complete APEX bootstrap pipeline.
@@ -72,19 +73,21 @@ class BootstrapManager:
 
     def _handle_error(self, e: Exception) -> None:
         """Outputs a clean UI error boundary instead of a raw traceback."""
-        from IPython.display import display, HTML
+        try:
+            from IPython.display import display, HTML
+            html = f"""
+            <div style="border: 1px solid #dc3545; border-radius: 4px; padding: 15px; margin: 15px 0; background: #fff8f8; font-family: sans-serif;">
+                <h3 style="color: #dc3545; margin-top: 0;">❌ APEX Bootstrap Failed</h3>
+                <p><b>Reason:</b> {str(e)}</p>
+                <p><b>Suggested Fix:</b> Try factory resetting your runtime (Runtime > Disconnect and Delete Runtime) or ensuring Github is reachable.</p>
+                <details>
+                    <summary style="cursor: pointer; color: #6c757d; font-size: 0.9em;">Developer Details (Click to Expand)</summary>
+                    <pre style="background: #f8f9fa; padding: 10px; margin-top: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.85em;">{repr(e)}</pre>
+                </details>
+            </div>
+            """
+            display(HTML(html))
+        except ImportError:
+            pass
         
-        html = f"""
-        <div style="border: 1px solid #dc3545; border-radius: 4px; padding: 15px; margin: 15px 0; background: #fff8f8; font-family: sans-serif;">
-            <h3 style="color: #dc3545; margin-top: 0;">❌ APEX Bootstrap Failed</h3>
-            <p><b>Reason:</b> {str(e)}</p>
-            <p><b>Suggested Fix:</b> Try factory resetting your runtime (Runtime > Disconnect and Delete Runtime) or ensuring Github is reachable.</p>
-            <details>
-                <summary style="cursor: pointer; color: #6c757d; font-size: 0.9em;">Developer Details (Click to Expand)</summary>
-                <pre style="background: #f8f9fa; padding: 10px; margin-top: 10px; border-radius: 4px; overflow-x: auto; font-size: 0.85em;">{repr(e)}</pre>
-            </details>
-        </div>
-        """
-        display(HTML(html))
-        # We also log it for the console if it's alive
         logger.error(f"Bootstrap Failed: {e}", extra={"prefix": "ERROR"})
