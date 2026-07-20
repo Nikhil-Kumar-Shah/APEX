@@ -6,7 +6,7 @@ from runtime.api.state import RuntimeState
 from runtime.api.authentication import AuthManager
 from runtime.api.queue import RequestQueue
 from runtime.api.middleware import configure_cors, request_logging_middleware
-from runtime.api.endpoints import create_router
+from runtime.api.router import create_router
 from runtime.api.security import secure_exception_handler
 
 def create_app(
@@ -37,6 +37,7 @@ def create_app(
         return await auth_manager.verify_request(request)
 
     router = create_router(state, queue, model_manager)
+
     
     # We apply the auth dependency to all routes except root/health if we want,
     # but the prompt implies standard global auth. We can mount it on the router.
