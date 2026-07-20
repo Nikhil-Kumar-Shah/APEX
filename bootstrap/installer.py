@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from bootstrap.config import DEFAULT_BRANCH, REPOSITORY_URL
+from bootstrap.config import BootstrapConfig
 from bootstrap.dependency_manager import DependencyInstaller
 from bootstrap.repository_manager import RepositoryManager
 from bootstrap.version_manager import VersionManager
@@ -14,15 +14,15 @@ from bootstrap.validator import SystemValidator
 class InstallationWizard:
     """Guides first-time users through repo updates, storage locations, and dependency setups."""
 
-    def __init__(self, workspace_parent_dir: Path, repo_url: str = REPOSITORY_URL):
-        """Initializes the InstallationWizard.
+    def __init__(self, workspace_parent_dir: Path, repo_url: Optional[str] = None):
+        """Initializes the wizard.
 
         Args:
-            workspace_parent_dir: Folder containing project checkouts.
-            repo_url: Repository Git URL.
+            workspace_parent_dir: The directory where the repo will be cloned.
+            repo_url: Optional GitHub URL.
         """
-        self.workspace_parent_dir = workspace_parent_dir
-        self.repo_url = repo_url
+        self.workspace_parent_dir = workspace_parent_dir.resolve()
+        self.repo_url = repo_url or BootstrapConfig().repo_url
 
     def run(
         self,
@@ -74,7 +74,7 @@ class InstallationWizard:
         success = repo_mgr.checkout(checkout_ref)
         if not success:
             print(f"[-] Requested release or tag '{checkout_ref}' not found. Continuing with the default branch.")
-            repo_mgr.checkout(DEFAULT_BRANCH)
+            repo_mgr.checkout(BootstrapConfig().default_branch)
 
         # 3. Validate structure
         validator = SystemValidator(target_dir)

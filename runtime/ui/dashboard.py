@@ -1,8 +1,6 @@
-"""Minimal side-by-side interactive dashboard for Google Colab."""
+"""Minimal side-by-side interactive dashboard for Google Colab with integrated unified console."""
 
 import logging
-import sys
-import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -10,6 +8,9 @@ from runtime.config.manager import ConfigManager
 from runtime.core.health import HealthMonitor
 from runtime.model.manager import ModelManager
 from runtime.memory.workspace import WorkspaceManager
+
+# Pull the global widget handler to bind our UI console
+from runtime.logging.logger import get_widget_handler
 
 logger = logging.getLogger("runtime.ui.dashboard")
 
@@ -25,19 +26,19 @@ def get_minimal_css() -> str:
             font-size: 13px;
         }
         .apex-left-panel {
-            width: 30%;
+            width: 25%;
             border-right: 2px solid #dee2e6;
             padding-right: 15px;
             margin-right: 15px;
         }
         .apex-right-panel {
-            width: 70%;
+            width: 75%;
             background: #1e1e1e;
             color: #d4d4d4;
             padding: 10px;
             border-radius: 4px;
             font-family: "Courier New", monospace;
-            height: 400px;
+            height: 500px;
             overflow-y: auto;
         }
         .apex-nav {
@@ -59,9 +60,6 @@ def get_minimal_css() -> str:
             text-align: left;
         }
         .apex-btn:hover { background-color: #dee2e6; }
-        .apex-btn-primary { background-color: #0d6efd; color: white; border-color: #0d6efd; }
-        .apex-btn-success { background-color: #198754; color: white; border-color: #198754; }
-        .apex-btn-danger { background-color: #dc3545; color: white; border-color: #dc3545; }
         .apex-card {
             background: white;
             border: 1px solid #dee2e6;
@@ -117,7 +115,7 @@ class RuntimeDashboard:
             import ipywidgets as widgets
             from IPython.display import display, HTML
         except ImportError:
-            logger.info("Headless rendering: ipywidgets is not installed.")
+            logger.info("Headless rendering: ipywidgets is not installed.", extra={"prefix": "SYSTEM"})
             return "Headless Dashboard Instance"
 
         display(widgets.HTML(get_minimal_css()))
@@ -129,6 +127,10 @@ class RuntimeDashboard:
         right_console = widgets.Output()
         right_console.add_class('apex-right-panel')
 
+        # Bind the global logger to this right_console widget
+        widget_handler = get_widget_handler()
+        widget_handler.set_widget(right_console)
+
         # Navigation Buttons (Vertical)
         buttons = {
             "status": widgets.Button(description="Status", layout=widgets.Layout(width='100%')),
@@ -136,11 +138,6 @@ class RuntimeDashboard:
             "models": widgets.Button(description="Models", layout=widgets.Layout(width='100%')),
             "runtime": widgets.Button(description="Runtime API", layout=widgets.Layout(width='100%')),
         }
-
-        # Override standard output into the right_console
-        def log_to_console(msg):
-            with right_console:
-                print(msg)
 
         def show_status(b=None):
             for k, btn in buttons.items():
@@ -183,7 +180,7 @@ class RuntimeDashboard:
 
                 def on_switch(b):
                     self.workspace_manager.load_workspace(ws_select.value)
-                    log_to_console(f"[Workspace] Loaded '{ws_select.value}'")
+                    logger.info(f"Loaded '{ws_select.value}'", extra={"prefix": "SUCCESS"})
                     show_status()
 
                 switch_btn.on_click(on_switch)
@@ -203,7 +200,7 @@ class RuntimeDashboard:
                 def on_download(b):
                     model_id = dl_input.value.strip()
                     if model_id:
-                        log_to_console(f"[Model] Submitting download task for: {model_id}...")
+                        logger.info(f"Submitting download task for: {model_id}...", extra={"prefix": "MODEL"})
                         self.orchestrator.submit_task("download_model", {"model_id": model_id})
 
                 dl_btn.on_click(on_download)
@@ -215,12 +212,12 @@ class RuntimeDashboard:
                 unload_btn = widgets.Button(description="Unload", button_style="danger", layout=widgets.Layout(width='90%'))
 
                 def on_load(b):
-                    log_to_console(f"[Model] Submitting load task for '{load_select.value}'...")
+                    logger.info(f"Submitting load task for '{load_select.value}'...", extra={"prefix": "MODEL"})
                     self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
 
                 def on_unload(b):
                     self.model_manager.unload_model()
-                    log_to_console("[Model] Unloaded from memory.")
+                    logger.info("Unloaded model from memory.", extra={"prefix": "SUCCESS"})
 
                 load_btn.on_click(on_load)
                 unload_btn.on_click(on_unload)
@@ -240,11 +237,11 @@ class RuntimeDashboard:
 
                 def on_start(b):
                     self.is_api_running = True
-                    log_to_console("[API] Server started on port 8000.")
+                    logger.info("API Server started on port 8000.", extra={"prefix": "API"})
 
                 def on_stop(b):
                     self.is_api_running = False
-                    log_to_console("[API] Server stopped.")
+                    logger.info("API Server stopped.", extra={"prefix": "API"})
 
                 start_btn.on_click(on_start)
                 stop_btn.on_click(on_stop)
@@ -262,11 +259,8 @@ class RuntimeDashboard:
         left_layout = widgets.VBox([nav_vbox, widgets.HTML("<hr>"), left_controls])
         left_layout.add_class('apex-left-panel')
 
-        # Connect standard output to right_console context for logging natively
-        # Note: In a real environment, logger stream handlers would attach to this output.
-        with right_console:
-            print("[System] APEX UI Initialized.")
-            print("[System] Console output will stream here.")
+        logger.info("APEX UI Initialized.", extra={"prefix": "SYSTEM"})
+        logger.info("Console output will stream here.", extra={"prefix": "SYSTEM"})
 
         dashboard_layout = widgets.HBox([left_layout, right_console], layout=widgets.Layout(width='100%'))
         display(dashboard_layout)

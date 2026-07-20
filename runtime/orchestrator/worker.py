@@ -44,7 +44,7 @@ class WorkerThread(threading.Thread):
 
     def run(self) -> None:
         """Worker main loop polling tasks and updating heartbeats."""
-        logger.info("[Worker] Thread started.")
+        logger.info("Thread started.", extra={"prefix": "WORKER"})
         while not self._stop_event.is_set():
             # Update Heartbeat
             self.orchestrator.worker_heartbeat = time.time()
@@ -57,16 +57,18 @@ class WorkerThread(threading.Thread):
             if task.cancelled:
                 task.update_status("FAILED")
                 task.error_message = "Task cancelled by user."
+                logger.info(f"Task {task.task_id} cancelled.", extra={"prefix": "WARNING"})
                 continue
 
             # Run Task
             task.update_status("PREPARING", progress=10)
             task.start_time = time.time()
             self.event_dispatcher.publish(RuntimeEvent("task_started", task.to_dict()))
+            logger.info(f"Preparing task: {task.task_type}", extra={"prefix": "WORKER"})
 
             handler = self.handlers.get(task.task_type)
             if not handler:
-                logger.error(f"[Worker] No handler registered for task type: {task.task_type}")
+                logger.error(f"No handler registered for task type: {task.task_type}", extra={"prefix": "ERROR"})
                 task.update_status("FAILED")
                 task.error_message = f"Unsupported task type: {task.task_type}"
                 task.completion_time = time.time()
@@ -76,6 +78,7 @@ class WorkerThread(threading.Thread):
             try:
                 # The handler itself is responsible for emitting granular lifecycle events:
                 # DOWNLOADING -> VERIFYING -> LOADING TOKENIZER -> INITIALIZING MODEL -> MOVING TO GPU
+                # And semantic logging like: logger.info("Loading weights...", extra={"prefix": "MODEL"})
                 handler(task)
                 
                 # If the handler successfully finished and didn't fail it
@@ -83,8 +86,9 @@ class WorkerThread(threading.Thread):
                     task.update_status("READY", progress=100)
                     task.completion_time = time.time()
                     self.event_dispatcher.publish(RuntimeEvent("task_finished", task.to_dict()))
+                    logger.info(f"Task completed successfully: {task.task_type}", extra={"prefix": "SUCCESS"})
             except Exception as e:
-                logger.error(f"[Worker] Task execution failed: {e}", exc_info=True)
+                logger.error(f"Task execution failed: {e}", exc_info=True, extra={"prefix": "ERROR"})
                 task.update_status("FAILED")
                 task.error_message = str(e)
                 task.completion_time = time.time()

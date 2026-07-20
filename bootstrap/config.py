@@ -1,17 +1,20 @@
 """Centralized bootstrap configuration parameters."""
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-# Repository Parameters
-REPOSITORY_URL = "https://github.com/Nikhil-Kumar-Shah/APEX.git"
-DEFAULT_BRANCH = "main"
-MIN_PYTHON_VERSION = (3, 8)
+@dataclass
+class BootstrapConfig:
+    """Core configuration for the APEX bootstrap sequence."""
+    repo_url: str = "https://github.com/Nikhil-Kumar-Shah/APEX.git"
+    default_branch: str = "main"
+    min_python_version: tuple = (3, 8)
+    
+    # Target directory on Colab
+    colab_target_dir: Path = Path("/content/APEX")
+    colab_persistent_dir: Path = Path("/content/drive/MyDrive/APEX")
 
-# Default Installation Targets
-DEFAULT_LOCAL_DIR_NAME = "APEX"
-DEFAULT_COLAB_TEMP_DIR = Path("/content/APEX")
-DEFAULT_COLAB_PERSISTENT_DIR = Path("/content/drive/MyDrive/APEX")
 
 # Centralized Validation Manifest
 # Only checks source-controlled assets; ignores directories created post-launch.

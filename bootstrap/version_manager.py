@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from bootstrap.config import DEFAULT_BRANCH
+from bootstrap.config import BootstrapConfig
 
 logger = logging.getLogger("bootstrap.version")
 
@@ -55,12 +55,12 @@ class VersionManager:
                 return tags[-1]  # Return the latest tag instead of a hardcoded string
             else:
                 logger.info("No release tags found in repository. Auto-enabling Development Mode.")
-                return DEFAULT_BRANCH
+                return BootstrapConfig().default_branch
         elif self.selected_version == "latest":
-            return DEFAULT_BRANCH
+            return BootstrapConfig().default_branch
         elif self.selected_version in ["branch", "commit"] and self.custom_ref:
             return self.custom_ref
-        return DEFAULT_BRANCH
+        return BootstrapConfig().default_branch
 
     def get_status(self, repo_path: Optional[Path] = None) -> Dict[str, Any]:
         """Gets diagnostic status info.

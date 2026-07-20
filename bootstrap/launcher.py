@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+import logging
+logger = logging.getLogger("bootstrap.launcher")
+
 class RuntimeLauncher:
     """Configures system search paths, mounts lifecycles, and boots API servers and dashboards."""
 
@@ -45,13 +48,13 @@ class RuntimeLauncher:
             ui_registry.load_all()
             dashboard_module = ui_registry.get_module("dashboard")
 
-            print(f"[+] Launching runtime from: {self.repository_path}")
+            logger.info(f"Launching runtime from: {self.repository_path}", extra={"prefix": "SYSTEM"})
             
             # Start runtime lifecycle
             lifecycle = RuntimeLifecycle(workspace_path=self.repository_path)
             success = lifecycle.startup(interactive=False)
             if not success:
-                print("[-] Runtime lifecycle startup failed.")
+                logger.error("Runtime lifecycle startup failed.", extra={"prefix": "ERROR"})
                 return False
 
             # Initialize GUI dashboard if run in notebook environment
@@ -67,12 +70,12 @@ class RuntimeLauncher:
                 )
                 dashboard.render()
             else:
-                print("[!] RuntimeDashboard UI module unavailable. Running headless.")
+                logger.warning("RuntimeDashboard UI module unavailable. Running headless.", extra={"prefix": "WARNING"})
             
             return True
         except ImportError as e:
-            print(f"[-] Failed to import runtime package modules from {self.repository_path}: {e}")
+            logger.error(f"Failed to import runtime package modules from {self.repository_path}: {e}", extra={"prefix": "ERROR"})
             return False
         except Exception as e:
-            print(f"[-] Execution error during runtime launch: {e}")
+            logger.error(f"Execution error during runtime launch: {e}", exc_info=True, extra={"prefix": "ERROR"})
             return False

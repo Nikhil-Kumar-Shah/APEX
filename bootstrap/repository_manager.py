@@ -36,7 +36,7 @@ class RepositoryManager:
         Returns:
             bool: True if cloning was successful.
         """
-        logger.info(f"Cloning repository {self.repo_url} into {self.target_dir}...")
+        logger.info(f"Cloning repository {self.repo_url} into {self.target_dir}...", extra={"prefix": "SYSTEM"})
         try:
             self.target_dir.parent.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
@@ -45,7 +45,7 @@ class RepositoryManager:
                 text=True,
                 check=True,
             )
-            logger.info("[+] Clone completed successfully.")
+            logger.info("Clone completed successfully.", extra={"prefix": "SUCCESS"})
             return True
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"[-] Clone failed: {e}")
@@ -60,7 +60,7 @@ class RepositoryManager:
         if not self.is_cloned():
             return False
 
-        logger.info("Fetching updates from remote...")
+        logger.info("Fetching updates from remote...", extra={"prefix": "SYSTEM"})
         try:
             subprocess.run(
                 ["git", "-C", str(self.target_dir), "fetch", "--all"],
@@ -85,7 +85,7 @@ class RepositoryManager:
         if not self.is_cloned():
             return False
 
-        logger.info(f"Checking out ref: {ref}...")
+        logger.info(f"Checking out ref: {ref}...", extra={"prefix": "SYSTEM"})
         try:
             subprocess.run(
                 ["git", "-C", str(self.target_dir), "checkout", ref],
@@ -93,7 +93,7 @@ class RepositoryManager:
                 text=True,
                 check=True,
             )
-            logger.info(f"[+] Checkout to {ref} successful.")
+            logger.info(f"Checkout to {ref} successful.", extra={"prefix": "SUCCESS"})
             return True
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.error(f"[-] Checkout failed: {e}")

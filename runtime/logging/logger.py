@@ -1,9 +1,9 @@
-"""Logging module for APEX with safe, resilient handlers."""
+"""Logging module for APEX with safe handlers and semantic UI formatting."""
 
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Optional color support
 try:
@@ -16,7 +16,7 @@ except ImportError:
 
 
 class ColoredFormatter(logging.Formatter):
-    """Custom Formatter that adds colors to logs if supported."""
+    """Custom Formatter that adds colors to logs if supported (for standard terminal)."""
 
     COLORS = {
         logging.DEBUG: Fore.CYAN if HAS_COLOR else "",
@@ -34,6 +34,60 @@ class ColoredFormatter(logging.Formatter):
         log_fmt = f"{color}[%(asctime)s] [%(levelname)s] (%(name)s) %(message)s{reset}"
         formatter = logging.Formatter(log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
         return formatter.format(record)
+
+
+class SemanticLogFormatter(logging.Formatter):
+    """HTML-based formatter for the Colab Runtime Console."""
+
+    COLORS = {
+        "INFO": "color: #aaaaaa;",            # Gray
+        "SUCCESS": "color: #28a745;",         # Green
+        "WARNING": "color: #ffc107;",         # Yellow
+        "ERROR": "color: #dc3545;",           # Red
+        "DOWNLOAD": "color: #0d6efd;",        # Blue
+        "GPU": "color: #6f42c1;",             # Purple
+        "API": "color: #0dcaf0;",             # Cyan
+        "MODEL": "color: #fd7e14;",           # Orange
+        "WORKER": "color: #20c997;",          # Light Blue
+        "SYSTEM": "color: #6c757d;"           # Dark Gray
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Check for a specific prefix, fallback to levelname (INFO, ERROR, etc.)
+        prefix = getattr(record, "prefix", record.levelname)
+        if prefix == "INFO" and record.levelname == "ERROR":
+            prefix = "ERROR"
+            
+        color_style = self.COLORS.get(prefix.upper(), "color: #d4d4d4;")
+        
+        # HTML formatting for the output widget
+        timestamp = self.formatTime(record, "%H:%M:%S")
+        message = record.getMessage()
+        
+        return f'<span style="color: #888888;">[{timestamp}]</span> <span style="{color_style} font-weight: bold; width: 80px; display: inline-block;">{prefix.upper()}</span> {message}'
+
+
+class WidgetLogHandler(logging.Handler):
+    """Intercepts logs and appends them as HTML to an ipywidgets.Output."""
+    
+    def __init__(self):
+        super().__init__()
+        self.widget: Optional[Any] = None
+        self.setFormatter(SemanticLogFormatter())
+
+    def set_widget(self, widget: Any):
+        """Bind the UI Output widget to this handler."""
+        self.widget = widget
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.widget:
+            try:
+                # We expect the widget to be an ipywidgets.Output
+                msg = self.format(record)
+                from IPython.display import HTML
+                self.widget.append_display_data(HTML(f"<div>{msg}</div>"))
+            except Exception:
+                pass
 
 
 class SafeStreamHandler(logging.StreamHandler):
@@ -88,6 +142,13 @@ class DynamicStreamProxy:
             pass
 
 
+# Global widget handler instance so dashboard can attach to it easily
+_global_widget_handler = WidgetLogHandler()
+
+def get_widget_handler() -> WidgetLogHandler:
+    return _global_widget_handler
+
+
 def setup_logger(
     name: str = "runtime",
     log_file: Optional[Path] = None,
@@ -110,13 +171,15 @@ def setup_logger(
     if logger.handlers:
         return logger
 
-    # Console Handler using SafeStreamHandler + DynamicStreamProxy
+    # 1. Console Handler using SafeStreamHandler + DynamicStreamProxy
     console_handler = SafeStreamHandler(DynamicStreamProxy())
     console_handler.setFormatter(ColoredFormatter())
     logger.addHandler(console_handler)
+    
+    # 2. Widget Log Handler for the Dashboard
+    logger.addHandler(get_widget_handler())
 
-
-    # File Handler (if log_file path provided)
+    # 3. File Handler (if log_file path provided)
     if log_file:
         try:
             log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -125,8 +188,7 @@ def setup_logger(
             file_formatter = logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S")
             file_handler.setFormatter(file_formatter)
             logger.addHandler(file_handler)
-        except OSError as e:
-            # We don't bubble this up or log recursively, just skip file logging.
+        except OSError:
             pass
 
     return logger
