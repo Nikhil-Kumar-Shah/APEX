@@ -25,7 +25,7 @@ class DriveManager:
             self._local_root = Path(__file__).resolve().parent.parent.parent
 
         self.mount_point = Path("/content/drive")
-        self._project_root: Optional[Path] = None
+        self._persistence_root: Optional[Path] = None
 
     def mount(self) -> bool:
         """Mounts Google Drive if running in Google Colab.
@@ -35,7 +35,7 @@ class DriveManager:
         """
         if not self.is_colab_env:
             # Local environment mock mount
-            self._project_root = self._local_root
+            self._persistence_root = self._local_root
             return True
 
         try:
@@ -44,33 +44,44 @@ class DriveManager:
 
             drive.mount(str(self.mount_point), force_remount=True)
             # Typically, notebooks are stored in My Drive or a subfolder.
-            # We locate or default the project root.
-            self._project_root = self.mount_point / "MyDrive" / "APEX"
-            self._project_root.mkdir(parents=True, exist_ok=True)
+            self._persistence_root = self.mount_point / "MyDrive" / "APEX"
+            self._persistence_root.mkdir(parents=True, exist_ok=True)
 
             return True
         except Exception:
+            self._persistence_root = self._local_root
             return False
 
     @property
     def project_root(self) -> Path:
-        """Retrieves the project root path.
+        """Retrieves the project runtime root path (always local).
 
         Returns:
             Path: Absolute path of the project root.
         """
-        if self._project_root is None:
-            # Fallback if mount() was not called
-            self._project_root = self._local_root
-        return self._project_root
+        return self._local_root
 
-    def get_path(self, relative_path: str) -> Path:
-        """Resolves a relative path against the project root.
+    @property
+    def persistence_root(self) -> Path:
+        """Retrieves the persistent storage root path (Drive if available).
+
+        Returns:
+            Path: Absolute path of the persistent root.
+        """
+        if self._persistence_root is None:
+            # Fallback if mount() was not called
+            self._persistence_root = self._local_root
+        return self._persistence_root
+
+    def get_path(self, relative_path: str, persistent: bool = False) -> Path:
+        """Resolves a relative path against the project or persistence root.
 
         Args:
             relative_path: Relative path string (e.g., 'configs/project.json').
+            persistent: Whether to use the persistent drive root.
 
         Returns:
             Path: Resolved absolute path.
         """
-        return (self.project_root / relative_path).resolve()
+        base = self.persistence_root if persistent else self.project_root
+        return (base / relative_path).resolve()

@@ -52,7 +52,10 @@ class RuntimeLifecycle:
             print(f"[+] Project Root: {project_root}")
 
             # 3. Path & Directory Setup
-            config_dir = project_root / "configs"
+            persistence_root = self.drive_manager.persistence_root
+            print(f"[+] Persistence Root: {persistence_root}")
+
+            config_dir = persistence_root / "configs"
             config_dir.mkdir(parents=True, exist_ok=True)
             config_file = config_dir / "apex.config.json"
 
@@ -72,7 +75,7 @@ class RuntimeLifecycle:
             config = self.config_manager.load()
 
             # 5. Initialize Logging
-            log_dir = project_root / config.get("directories", {}).get("log_dir", "logs")
+            log_dir = persistence_root / config.get("directories", {}).get("log_dir", "logs")
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "runtime.log"
 
@@ -86,13 +89,13 @@ class RuntimeLifecycle:
             self.logger.info(f"Environment: {env}")
             self.logger.info(f"Project root resolved to: {project_root}")
 
-            # 6. Initialize Directories
+            # 6. Initialize Directories (Cache is ephemeral in VM, Output is persistent)
             cache_dir = project_root / config.get("directories", {}).get("cache_dir", "cache")
-            output_dir = project_root / config.get("directories", {}).get("output_dir", "outputs")
+            output_dir = persistence_root / config.get("directories", {}).get("output_dir", "outputs")
 
             # 7. Environment Validation (Checking permissions on required directories)
             self.logger.info("Running environment validations...")
-            EnvironmentValidator.validate([project_root, log_dir, cache_dir, output_dir])
+            EnvironmentValidator.validate([project_root, persistence_root, log_dir, cache_dir, output_dir])
 
             # Ensure all folders exist
             cache_dir.mkdir(parents=True, exist_ok=True)

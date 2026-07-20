@@ -51,11 +51,7 @@ class InstallationWizard:
         if interactive and sys.stdin.isatty():
             choice = input("Install to persistent Google Drive? (y/n) [n]: ").strip().lower()
             if choice == "y":
-                # In Colab, persistent path points to Drive
-                target_dir = Path("/content/drive/MyDrive/APEX")
-
-        elif use_persistent_drive:
-            target_dir = Path("/content/drive/MyDrive/APEX")
+                print("[!] Note: Source code and runtime now always install to local VM storage for performance.")
 
         print(f"[+] Target Installation Directory: {target_dir}")
 
