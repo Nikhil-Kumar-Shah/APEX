@@ -1,25 +1,54 @@
-"""Unit tests for ModelManager, caching, and downloading."""
+"""Unit tests for ModelManager, caching, and downloading — APEX V1."""
 
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from runtime.config.profile import get_profile
-from runtime.core.errors import ModelNotFoundError
+from runtime.core.errors import ModelNotFoundError, UnsupportedArchitectureError
 from runtime.model.cache import CacheManager
 from runtime.model.downloader import ModelDownloader
-from runtime.model.manager import ModelManager
+from runtime.model.manager import ModelManager, _validate_model_id
 
 
 def test_model_profiles():
-    """Validates that preset profiles retrieve matching limits and engines."""
+    """Validates that preset profiles use transformers engine in V1."""
     qwen = get_profile("qwen")
     assert qwen.name == "Qwen"
-    assert qwen.preferred_engine == "vllm"
+    assert qwen.preferred_engine == "transformers"
     assert qwen.context_limit == 32768
 
     custom = get_profile("some-unknown-family")
     assert custom.name == "Custom"
     assert custom.preferred_engine == "transformers"
+
+
+def test_v1_model_id_validation():
+    """Validates that V1 rejects non-HF model IDs."""
+    # Valid IDs should pass
+    _validate_model_id("Qwen/Qwen2.5-1.5B-Instruct")
+    _validate_model_id("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+    _validate_model_id("google/gemma-3-4b-it")
+    _validate_model_id("mistralai/Mistral-7B-Instruct-v0.3")
+
+    # GGUF should be rejected
+    with pytest.raises(UnsupportedArchitectureError):
+        _validate_model_id("bartowski/model.gguf")
+
+    # hf:// URIs should be rejected
+    with pytest.raises(UnsupportedArchitectureError):
+        _validate_model_id("hf://bartowski/some-model")
+
+    # Bare names without org should be rejected
+    with pytest.raises(UnsupportedArchitectureError):
+        _validate_model_id("just-a-model-name")
+
+    # Ollama references should be rejected
+    with pytest.raises(UnsupportedArchitectureError):
+        _validate_model_id("ollama/llama3")
+
+    # CLI commands should be rejected
+    with pytest.raises(UnsupportedArchitectureError):
+        _validate_model_id("hf download something")
 
 
 def test_cache_manager(tmp_path: Path):
@@ -65,7 +94,7 @@ def test_model_manager_load(mock_download, tmp_path: Path):
     (model_dir / "config.json").write_text("{}", encoding="utf-8")
     (model_dir / "model.safetensors").write_text("data", encoding="utf-8")
 
-    # Load with mock engine
+    # Load with mock engine (V1 allows 'mock' for testing)
     engine = manager.load_model(model_id, engine_override="mock")
     assert manager.active_model_id == model_id
     assert engine.is_loaded

@@ -1,4 +1,4 @@
-"""Model Profile system for APEX."""
+"""Model Profile system for APEX — V1 (Transformers-only defaults)."""
 
 
 from dataclasses import dataclass, field
@@ -10,9 +10,8 @@ class ModelProfile:
     """Contains capabilities, limits, and configurations for a specific model family."""
 
     name: str
-    preferred_engine: str  # 'transformers', 'vllm', or 'llama.cpp'
+    preferred_engine: str  # V1: always 'transformers'
     context_limit: int
-    quantizations_supported: List[str]
     default_parameters: Dict[str, Any] = field(default_factory=dict)
     streaming_supported: bool = True
     recommended_gpu_utilization: float = 0.85
@@ -20,44 +19,61 @@ class ModelProfile:
 
 
 # Preset profiles for widely used open-source model families
+# V1: All profiles use 'transformers' as the preferred engine
 MODEL_PROFILES: Dict[str, ModelProfile] = {
     "qwen": ModelProfile(
         name="Qwen",
-        preferred_engine="vllm",
+        preferred_engine="transformers",
         context_limit=32768,
-        quantizations_supported=["awq", "gptq", "gguf", "none"],
         default_parameters={"temperature": 0.7, "top_p": 0.8, "repetition_penalty": 1.1},
         recommended_gpu_utilization=0.90,
     ),
     "deepseek": ModelProfile(
         name="DeepSeek",
-        preferred_engine="vllm",
+        preferred_engine="transformers",
         context_limit=16384,
-        quantizations_supported=["awq", "gptq", "gguf", "none"],
         default_parameters={"temperature": 0.6, "top_p": 0.95, "repetition_penalty": 1.0},
         recommended_gpu_utilization=0.90,
+    ),
+    "deepseek-ai": ModelProfile(
+        name="DeepSeek",
+        preferred_engine="transformers",
+        context_limit=16384,
+        default_parameters={"temperature": 0.6, "top_p": 0.95, "repetition_penalty": 1.0},
+        recommended_gpu_utilization=0.90,
+    ),
+    "google": ModelProfile(
+        name="Google",
+        preferred_engine="transformers",
+        context_limit=8192,
+        default_parameters={"temperature": 0.7, "top_p": 0.9, "repetition_penalty": 1.0},
+        recommended_gpu_utilization=0.80,
     ),
     "gemma": ModelProfile(
         name="Gemma",
         preferred_engine="transformers",
         context_limit=8192,
-        quantizations_supported=["awq", "gguf", "none"],
         default_parameters={"temperature": 0.7, "top_p": 0.9, "repetition_penalty": 1.0},
         recommended_gpu_utilization=0.80,
     ),
-    "glm": ModelProfile(
-        name="GLM",
+    "mistralai": ModelProfile(
+        name="Mistral",
+        preferred_engine="transformers",
+        context_limit=32768,
+        default_parameters={"temperature": 0.7, "top_p": 0.9, "repetition_penalty": 1.0},
+        recommended_gpu_utilization=0.85,
+    ),
+    "meta-llama": ModelProfile(
+        name="Llama",
         preferred_engine="transformers",
         context_limit=8192,
-        quantizations_supported=["awq", "gptq", "none"],
-        default_parameters={"temperature": 0.8, "top_p": 0.8, "repetition_penalty": 1.1},
+        default_parameters={"temperature": 0.7, "top_p": 0.9, "repetition_penalty": 1.0},
         recommended_gpu_utilization=0.85,
     ),
     "custom": ModelProfile(
         name="Custom",
         preferred_engine="transformers",
         context_limit=2048,
-        quantizations_supported=["awq", "gptq", "gguf", "none"],
         default_parameters={"temperature": 0.7, "top_p": 0.9},
         recommended_gpu_utilization=0.85,
     ),
@@ -70,7 +86,7 @@ def get_profile(family_name: str) -> ModelProfile:
     Falls back to 'custom' if the family is not recognized.
 
     Args:
-        family_name: The name of the model family.
+        family_name: The name of the model family (typically the org from a HF repo ID).
 
     Returns:
         ModelProfile: The matched profile.

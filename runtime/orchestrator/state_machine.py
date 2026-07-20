@@ -47,12 +47,12 @@ class RuntimeStateMachine:
             bool: True if transition was successfully set.
         """
         if new_state not in self.STATES:
-            logger.error(f"[-] Invalid target state: {new_state}")
+            logger.error(f"Invalid target state: {new_state}", extra={"prefix": "ERROR"})
             return False
 
         old_state = self._state
         self._state = new_state
-        logger.info(f"[State] Transitioned from {old_state} -> {new_state}")
+        logger.info(f"Transitioned {old_state} -> {new_state}", extra={"prefix": "SYSTEM"})
         
         # Trigger callbacks
         for listener in self.listeners:

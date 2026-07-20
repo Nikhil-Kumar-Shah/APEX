@@ -1,4 +1,4 @@
-"""Minimal side-by-side interactive dashboard for Google Colab with integrated unified console."""
+"""Minimal side-by-side interactive dashboard for Google Colab — APEX V1."""
 
 import logging
 from pathlib import Path
@@ -73,12 +73,23 @@ def get_minimal_css() -> str:
             margin-bottom: 10px;
             color: #0d6efd;
         }
+        .apex-hint {
+            color: #6c757d;
+            font-size: 11px;
+            margin-top: 4px;
+        }
     </style>
     """
 
 
 class RuntimeDashboard:
-    """Side-by-side developer control panel (Left: Controls, Right: Terminal Output)."""
+    """Side-by-side developer control panel (Left: Controls, Right: Terminal Output).
+
+    APEX V1 UI Constraints:
+        - Four tabs only: Status, Workspace, Model, Runtime
+        - Model tab: single HF Model ID input + Download + Load/Unload
+        - No engine selectors, no GGUF, no quantization controls
+    """
 
     def __init__(self):
         """Initializes an empty dashboard (bind_managers must be called later)."""
@@ -140,16 +151,17 @@ class RuntimeDashboard:
         widget_handler = get_widget_handler()
         widget_handler.set_widget(right_console)
 
-        # Navigation Buttons (Vertical)
+        # Navigation Buttons (Vertical) — V1: exactly 4 tabs
         buttons = {
             "status": widgets.Button(description="Status", layout=widgets.Layout(width='100%')),
             "workspace": widgets.Button(description="Workspace", layout=widgets.Layout(width='100%')),
-            "models": widgets.Button(description="Models", layout=widgets.Layout(width='100%')),
-            "runtime": widgets.Button(description="Runtime API", layout=widgets.Layout(width='100%')),
+            "models": widgets.Button(description="Model", layout=widgets.Layout(width='100%')),
+            "runtime": widgets.Button(description="Runtime", layout=widgets.Layout(width='100%')),
         }
 
         def show_status(b=None):
-            if not self.orchestrator: return
+            if not self.orchestrator:
+                return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "status" else ""
             
@@ -160,10 +172,12 @@ class RuntimeDashboard:
                 api_status = "Online" if self.is_api_running else "Offline"
                 worker_alive = self.orchestrator.worker.is_alive()
                 active_tasks = self.orchestrator.task_queue.list_tasks()
+                state = self.orchestrator.state_machine.current_state
                 
                 html = f"""
                 <div class="apex-header">Status</div>
                 <div class="apex-card">
+                    <b>State:</b> {state}<br>
                     <b>Workspace:</b> {self.workspace_manager.active_workspace_id}<br>
                     <b>Model:</b> {active_model.split('/')[-1]}<br>
                     <b>GPU:</b> {report['gpu'].get('device_name') or 'CPU Fallback'}<br>
@@ -176,7 +190,8 @@ class RuntimeDashboard:
                 display(HTML(html))
 
         def show_workspace(b=None):
-            if not self.orchestrator: return
+            if not self.orchestrator:
+                return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "workspace" else ""
             
@@ -191,59 +206,77 @@ class RuntimeDashboard:
 
                 def on_switch(b):
                     self.workspace_manager.load_workspace(ws_select.value)
-                    logger.info(f"Loaded '{ws_select.value}'", extra={"prefix": "SUCCESS"})
+                    logger.info(f"Loaded workspace: '{ws_select.value}'", extra={"prefix": "WORKSPACE"})
                     show_status()
 
                 switch_btn.on_click(on_switch)
                 display(widgets.VBox([ws_select, switch_btn]))
 
         def show_models(b=None):
-            if not self.orchestrator: return
+            if not self.orchestrator:
+                return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "models" else ""
             
             with self.left_controls:
                 self.left_controls.clear_output()
-                display(HTML("<div class='apex-header'>Model Controls</div>"))
+                display(HTML("<div class='apex-header'>Model</div>"))
                 
-                dl_input = widgets.Text(placeholder="HF Repo ID", layout=widgets.Layout(width='90%'))
-                dl_btn = widgets.Button(description="Download", button_style="warning", layout=widgets.Layout(width='90%'))
+                # Single HF Model ID input — V1 simplification
+                display(HTML("<div class='apex-hint'>Hugging Face Model ID</div>"))
+                model_input = widgets.Text(
+                    placeholder="Qwen/Qwen2.5-1.5B-Instruct",
+                    layout=widgets.Layout(width='90%')
+                )
+                download_btn = widgets.Button(description="Download", button_style="warning", layout=widgets.Layout(width='90%'))
+                
+                display(HTML("<hr>"))
+
+                # Cached models dropdown for Load/Unload
+                cached = self.model_manager.list_cached_models()
+                cached_ids = [m.get("model_id") for m in cached] if cached else []
+                
+                if cached_ids:
+                    display(HTML("<div class='apex-hint'>Downloaded Models</div>"))
+                    load_select = widgets.Dropdown(options=cached_ids, layout=widgets.Layout(width='90%'))
+                    load_btn = widgets.Button(description="Load Model", button_style="success", layout=widgets.Layout(width='90%'))
+                    unload_btn = widgets.Button(description="Unload", button_style="danger", layout=widgets.Layout(width='90%'))
+                else:
+                    load_select = None
+                    load_btn = None
+                    unload_btn = None
 
                 def on_download(b):
-                    model_id = dl_input.value.strip()
+                    model_id = model_input.value.strip()
                     if model_id:
-                        logger.info(f"Submitting download task for: {model_id}...", extra={"prefix": "MODEL"})
+                        logger.info(f"Submitting download: {model_id}", extra={"prefix": "MODEL"})
                         self.orchestrator.submit_task("download_model", {"model_id": model_id})
 
-                dl_btn.on_click(on_download)
-                
-                cached = self.model_manager.list_cached_models()
-                cached_ids = [m.get("model_id") for m in cached] if cached else ["Qwen/Qwen2.5-1.5B-Instruct"]
-                load_select = widgets.Dropdown(options=cached_ids, layout=widgets.Layout(width='90%'))
-                load_btn = widgets.Button(description="Load Model", button_style="success", layout=widgets.Layout(width='90%'))
-                unload_btn = widgets.Button(description="Unload", button_style="danger", layout=widgets.Layout(width='90%'))
+                download_btn.on_click(on_download)
+                display(widgets.VBox([model_input, download_btn]))
 
-                def on_load(b):
-                    logger.info(f"Submitting load task for '{load_select.value}'...", extra={"prefix": "MODEL"})
-                    self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
+                if load_select and load_btn and unload_btn:
+                    def on_load(b):
+                        logger.info(f"Submitting load: {load_select.value}", extra={"prefix": "MODEL"})
+                        self.orchestrator.submit_task("load_model", {"model_id": load_select.value})
 
-                def on_unload(b):
-                    self.model_manager.unload_model()
-                    logger.info("Unloaded model from memory.", extra={"prefix": "SUCCESS"})
+                    def on_unload(b):
+                        self.model_manager.unload_model()
+                        logger.info("Model unloaded from memory.", extra={"prefix": "SUCCESS"})
 
-                load_btn.on_click(on_load)
-                unload_btn.on_click(on_unload)
-
-                display(widgets.VBox([dl_input, dl_btn, widgets.HTML("<hr>"), load_select, load_btn, unload_btn]))
+                    load_btn.on_click(on_load)
+                    unload_btn.on_click(on_unload)
+                    display(widgets.VBox([load_select, load_btn, unload_btn]))
 
         def show_runtime(b=None):
-            if not self.orchestrator: return
+            if not self.orchestrator:
+                return
             for k, btn in buttons.items():
                 btn.button_style = "info" if k == "runtime" else ""
             
             with self.left_controls:
                 self.left_controls.clear_output()
-                display(HTML("<div class='apex-header'>API Server</div>"))
+                display(HTML("<div class='apex-header'>Runtime API</div>"))
                 
                 start_btn = widgets.Button(description="Start API", button_style="success", layout=widgets.Layout(width='90%'))
                 stop_btn = widgets.Button(description="Stop API", button_style="danger", layout=widgets.Layout(width='90%'))
@@ -272,6 +305,8 @@ class RuntimeDashboard:
         nav_vbox = widgets.VBox(list(buttons.values()))
         left_layout = widgets.VBox([nav_vbox, widgets.HTML("<hr>"), self.left_controls])
         left_layout.add_class('apex-left-panel')
+
+        logger.info("APEX Runtime Console initialized.", extra={"prefix": "SYSTEM"})
 
         dashboard_layout = widgets.HBox([left_layout, right_console], layout=widgets.Layout(width='100%'))
         display(dashboard_layout)

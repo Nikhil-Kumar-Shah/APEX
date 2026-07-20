@@ -1,8 +1,10 @@
-"""Background worker thread executing task queue jobs."""
+"""Background worker thread executing task queue jobs — APEX V1."""
 
 import logging
 import threading
 import time
+import traceback
+import sys
 from typing import Any, Callable, Dict, Optional
 
 from runtime.orchestrator.task_queue import Task, TaskQueue
@@ -44,7 +46,7 @@ class WorkerThread(threading.Thread):
 
     def run(self) -> None:
         """Worker main loop polling tasks and updating heartbeats."""
-        logger.info("Thread started.", extra={"prefix": "WORKER"})
+        logger.info("Worker thread started.", extra={"prefix": "WORKER"})
         while not self._stop_event.is_set():
             # Update Heartbeat
             self.orchestrator.worker_heartbeat = time.time()
@@ -57,7 +59,7 @@ class WorkerThread(threading.Thread):
             if task.cancelled:
                 task.update_status("FAILED")
                 task.error_message = "Task cancelled by user."
-                logger.info(f"Task {task.task_id} cancelled.", extra={"prefix": "WARNING"})
+                logger.info(f"Task {task.task_id} cancelled by user.", extra={"prefix": "WORKER"})
                 continue
 
             # Run Task
@@ -76,9 +78,6 @@ class WorkerThread(threading.Thread):
                 continue
 
             try:
-                # The handler itself is responsible for emitting granular lifecycle events:
-                # DOWNLOADING -> VERIFYING -> LOADING TOKENIZER -> INITIALIZING MODEL -> MOVING TO GPU
-                # And semantic logging like: logger.info("Loading weights...", extra={"prefix": "MODEL"})
                 handler(task)
                 
                 # If the handler successfully finished and didn't fail it
@@ -86,12 +85,38 @@ class WorkerThread(threading.Thread):
                     task.update_status("READY", progress=100)
                     task.completion_time = time.time()
                     self.event_dispatcher.publish(RuntimeEvent("task_finished", task.to_dict()))
-                    logger.info(f"Task completed successfully: {task.task_type}", extra={"prefix": "SUCCESS"})
+                    logger.info(f"Task completed: {task.task_type}", extra={"prefix": "SUCCESS"})
             except Exception as e:
-                logger.error(f"Task execution failed: {e}", exc_info=True, extra={"prefix": "ERROR"})
+                # Structured error reporting with full context
                 task.update_status("FAILED")
                 task.error_message = str(e)
                 task.completion_time = time.time()
+
+                # Extract traceback location
+                tb = traceback.extract_tb(sys.exc_info()[2])
+                if tb:
+                    last_frame = tb[-1]
+                    location = f"{last_frame.filename}:{last_frame.lineno}"
+                    func_name = last_frame.name
+                else:
+                    location = "unknown"
+                    func_name = "unknown"
+
+                logger.error(
+                    f"Task: {task.task_type}\n"
+                    f"  Reason: {type(e).__name__}: {e}\n"
+                    f"  Location: {location}\n"
+                    f"  Function: {func_name}\n"
+                    f"  Task cancelled. State restored to READY.",
+                    extra={"prefix": "ERROR"},
+                )
+
+                # Restore state machine
+                try:
+                    self.orchestrator.state_machine.transition_to("READY")
+                except Exception:
+                    pass
+
                 self.event_dispatcher.publish(RuntimeEvent("task_failed", task.to_dict()))
 
             time.sleep(0.05)
