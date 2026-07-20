@@ -1,28 +1,38 @@
 ---
 name: Bug Report
-about: Create a report to help us improve the runtime.
-title: "[BUG] "
+about: Report a reproducible bug or unexpected behaviour in APEX
+title: '[BUG] '
 labels: bug
 assignees: ''
-
 ---
 
-**Describe the Bug**
+## Describe the bug
 A clear and concise description of what the bug is.
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Initialize the notebook or server config using parameters...
-2. Run command / endpoint...
-3. See error...
+## Steps to Reproduce
+1. Go to '...'
+2. Click on '....'
+3. Run command '....'
+4. See error
 
-**Expected Behavior**
-What you expected to happen instead.
+## Expected behaviour
+A clear and concise description of what you expected to happen.
 
-**Logs & Diagnostics**
-Please paste the log output from `logs/runtime.log` (or retrieve diagnostic statistics from `GET /status`).
+## Actual behaviour
+What actually happened? Include logs or terminal output if possible.
 
-**Environment Details:**
-- OS: [e.g. Windows, Colab Linux]
-- Python Version: [e.g. 3.10.11]
-- Inference Engine: [e.g. vLLM, Transformers, llama.cpp]
+## Environment:
+- **Deployment**: [e.g., Google Colab, Local Windows, Local Linux, Docker]
+- **APEX Version**: [e.g., v1.2.0]
+- **Python Version**: [e.g., 3.11]
+- **Hardware/GPU**: [e.g., NVIDIA T4, CPU only]
+- **Model**: [e.g., Qwen2.5-7B]
+
+## Logs / Console Output
+```text
+Paste any relevant tracebacks or error messages here.
+(Remember to redact any API keys or sensitive paths)
+```
+
+## Additional context
+Add any other context about the problem here.
