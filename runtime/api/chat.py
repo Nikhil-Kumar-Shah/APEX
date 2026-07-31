@@ -41,9 +41,13 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
 
     # Check if a model engine is loaded and active
     if active_engine and getattr(active_engine, "is_loaded", False):
-        tokenizer = getattr(active_engine, "tokenizer", None)
-        prompt = format_chat_prompt(request.messages, tokenizer)
-        
+        raw_msgs = []
+        for m in request.messages:
+            if isinstance(m, dict):
+                raw_msgs.append({"role": m.get("role", "user"), "content": m.get("content", "")})
+            else:
+                raw_msgs.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
+
         gen_params = {
             "max_new_tokens": getattr(request, "max_tokens", 512) or 512,
             "temperature": getattr(request, "temperature", 0.7) or 0.7,
@@ -57,7 +61,7 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
 
                 def _produce_tokens():
                     try:
-                        for token in active_engine.generate_stream(prompt, gen_params):
+                        for token in active_engine.generate_stream(raw_msgs, gen_params):
                             loop.call_soon_threadsafe(token_queue.put_nowait, token)
                     except Exception as exc:
                         loop.call_soon_threadsafe(token_queue.put_nowait, exc)
@@ -87,12 +91,12 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
             return StreamingResponse(generate_real_stream(), media_type="text/event-stream")
         else:
             full_text = ""
-            for token in active_engine.generate_stream(prompt, gen_params):
+            for token in active_engine.generate_stream(raw_msgs, gen_params):
                 full_text += token
             return serialize_chat_completion(
                 model=request.model,
                 content=full_text,
-                prompt_tokens=len(prompt.split()),
+                prompt_tokens=10,
                 completion_tokens=len(full_text.split())
             )
 

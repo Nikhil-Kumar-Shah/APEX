@@ -93,7 +93,31 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         temperature = g_params.get("temperature", 0.7)
         top_p = g_params.get("top_p", 0.9)
 
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        inputs = None
+        if isinstance(prompt, list):
+            if hasattr(self.tokenizer, "apply_chat_template"):
+                try:
+                    tensor_inputs = self.tokenizer.apply_chat_template(
+                        prompt,
+                        return_tensors="pt",
+                        add_generation_prompt=True
+                    ).to(self.device)
+                    inputs = {"input_ids": tensor_inputs}
+                except Exception:
+                    inputs = None
+            if inputs is None:
+                str_prompt = ""
+                for m in prompt:
+                    r = m.get("role", "user") if isinstance(m, dict) else getattr(m, "role", "user")
+                    c = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+                    str_prompt += f"<|im_start|>{r}\n{c}<|im_end|>\n"
+                str_prompt += "<|im_start|>assistant\n"
+                inputs = self.tokenizer(str_prompt, return_tensors="pt").to(self.device)
+        elif isinstance(prompt, str):
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        else:
+            inputs = self.tokenizer(str(prompt), return_tensors="pt").to(self.device)
+
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
         eos_ids = []
