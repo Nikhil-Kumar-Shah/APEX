@@ -13,7 +13,16 @@ from runtime.api.authentication import AuthManager
 from runtime.api.queue import RequestQueue
 
 
+class MockEngine:
+    is_loaded = True
+    active_model_id = "Qwen/Qwen2.5-0.5B"
+    def generate_stream(self, prompt, gen_params=None):
+        yield "Hello "
+        yield "World!"
+
 class MockModelManager:
+    active_model_id = "Qwen/Qwen2.5-0.5B"
+    active_engine = MockEngine()
     def list_cached_models(self):
         return []
 
@@ -73,7 +82,7 @@ def test_api_chat_completions(mock_managers):
         "messages": [{"role": "user", "content": "Hello"}]
     })
     assert response.status_code == 200
-    assert response.json()["choices"][0]["message"]["content"] == "Hello World! I am APEX."
+    assert response.json()["choices"][0]["message"]["content"] == "Hello World!"
 
 
 # ── Port Utility Tests ────────────────────────────────────────────────────

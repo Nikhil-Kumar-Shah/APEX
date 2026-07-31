@@ -96,15 +96,32 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
-        eos_token_id = getattr(self.tokenizer, "eos_token_id", None)
-        pad_token_id = getattr(self.tokenizer, "pad_token_id", None) or eos_token_id
+        eos_ids = []
+        if hasattr(self.tokenizer, "eos_token_id") and self.tokenizer.eos_token_id is not None:
+            if isinstance(self.tokenizer.eos_token_id, list):
+                eos_ids.extend(self.tokenizer.eos_token_id)
+            else:
+                eos_ids.append(self.tokenizer.eos_token_id)
+
+        for stop_sym in ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]:
+            try:
+                t_id = self.tokenizer.convert_tokens_to_ids(stop_sym)
+                if t_id is not None and isinstance(t_id, int) and t_id not in eos_ids and t_id > 0:
+                    eos_ids.append(t_id)
+            except Exception:
+                pass
+
+        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
+        if pad_token_id is None and eos_ids:
+            pad_token_id = eos_ids[0]
 
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,
             max_new_tokens=max_new_tokens,
             pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
+            eos_token_id=eos_ids if eos_ids else None,
+            repetition_penalty=1.1,
         )
 
         if temperature > 0.0:

@@ -58,6 +58,9 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
                 # Iterate over generated tokens from engine
                 token_stream = active_engine.generate_stream(prompt, gen_params)
                 for token in token_stream:
+                    # Immediately abort generation if client cancels or disconnects
+                    if await req.is_disconnected():
+                        break
                     if token:
                         yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, content=token))}\n\n"
                         await asyncio.sleep(0)
@@ -77,17 +80,8 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
                 completion_tokens=len(full_text.split())
             )
 
-    # Fallback response if no active model engine is present
-    if request.stream:
-        async def mock_stream():
-            yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, role='assistant', content='Hello World! I am APEX.'))}\n\n"
-            yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, finish_reason='stop'))}\n\n"
-            yield f"data: [DONE]\n\n"
-        return StreamingResponse(mock_stream(), media_type="text/event-stream")
-
-    return serialize_chat_completion(
-        model=request.model,
-        content="Hello World! I am APEX.",
-        prompt_tokens=10,
-        completion_tokens=20
+    # Return error if no active model is loaded (no mock or branding fallbacks)
+    raise HTTPException(
+        status_code=503,
+        detail="No model is currently loaded in APEX runtime. Load a model first before sending requests."
     )
