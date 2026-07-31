@@ -18,6 +18,8 @@ def create_app(
 ) -> FastAPI:
     """Builds and configures the FastAPI application."""
     app = FastAPI(title="APEX API", version="1.1", docs_url="/docs", redoc_url=None)
+    app.state.model_manager = model_manager
+    app.state.runtime_state = state
 
     # 1. Error Handlers
     app.add_exception_handler(Exception, secure_exception_handler)
