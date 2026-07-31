@@ -96,22 +96,42 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
+        eos_token_id = getattr(self.tokenizer, "eos_token_id", None)
+        pad_token_id = getattr(self.tokenizer, "pad_token_id", None) or eos_token_id
+
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,
             max_new_tokens=max_new_tokens,
-            do_sample=temperature > 0.0,
-            temperature=temperature if temperature > 0.0 else None,
-            top_p=top_p if temperature > 0.0 else None,
+            pad_token_id=pad_token_id,
+            eos_token_id=eos_token_id,
         )
+
+        if temperature > 0.0:
+            generation_kwargs["do_sample"] = True
+            generation_kwargs["temperature"] = temperature
+            generation_kwargs["top_p"] = top_p
+        else:
+            generation_kwargs["do_sample"] = False
 
         # Run model generation in a background thread to allow streamer consumption
         thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
         thread.start()
 
+        stop_words = ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]
         try:
             for new_text in streamer:
-                yield new_text
+                should_stop = False
+                clean_text = new_text
+                for sw in stop_words:
+                    if sw in clean_text:
+                        clean_text = clean_text.split(sw)[0]
+                        should_stop = True
+                        break
+                if clean_text:
+                    yield clean_text
+                if should_stop:
+                    break
         finally:
             thread.join()
 

@@ -25,19 +25,14 @@ def format_chat_prompt(messages: List[Any], tokenizer: Any = None) -> str:
         except Exception:
             pass
 
-    # Instruct fallback prompt
+    # Standard ChatML fallback prompt (Qwen, Llama-3, etc.)
     parts = []
     for msg in raw_msgs:
         role = msg["role"]
         content = msg["content"]
-        if role == "system":
-            parts.append(f"System: {content}")
-        elif role == "user":
-            parts.append(f"User: {content}")
-        elif role == "assistant":
-            parts.append(f"Assistant: {content}")
-    parts.append("Assistant:")
-    return "\n\n".join(parts)
+        parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
+    parts.append("<|im_start|>assistant")
+    return "\n".join(parts) + "\n"
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, req: Request):
