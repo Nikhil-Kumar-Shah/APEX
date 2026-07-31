@@ -32,3 +32,29 @@ def serialize_chat_completion(
             "total_tokens": prompt_tokens + completion_tokens
         }
     }
+
+def serialize_chat_completion_chunk(
+    model: str,
+    content: str = "",
+    finish_reason: Any = None,
+    role: Any = None
+) -> Dict[str, Any]:
+    delta: Dict[str, Any] = {}
+    if role:
+        delta["role"] = role
+    if content:
+        delta["content"] = content
+    return {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason
+            }
+        ]
+    }
+

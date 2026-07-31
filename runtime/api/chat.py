@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from runtime.api.schemas import ChatCompletionRequest
-from runtime.api.serializers import serialize_chat_completion
+from runtime.api.serializers import serialize_chat_completion, serialize_chat_completion_chunk
 import json
 
 router = APIRouter()
@@ -13,13 +13,14 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
     """OpenAI-compatible Chat Completions."""
     if request.stream:
         async def mock_stream():
-            yield f"data: {json.dumps(serialize_chat_completion(request.model, 'Hello! '))} \n\n"
+            yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, role='assistant', content='Hello World! I am APEX.'))}\n\n"
+            yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, finish_reason='stop'))}\n\n"
             yield f"data: [DONE]\n\n"
         return StreamingResponse(mock_stream(), media_type="text/event-stream")
     
     return serialize_chat_completion(
         model=request.model,
-        content="This is a mock chat completion response from the APEX runtime.",
+        content="Hello World! I am APEX.",
         prompt_tokens=10,
         completion_tokens=20
     )

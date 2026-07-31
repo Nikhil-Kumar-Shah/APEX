@@ -13,6 +13,7 @@ async def health_check():
         "gpu": True,
         "memory": "ok",
         "model": "loaded",
+        "model_loaded": "Qwen/Qwen2.5-0.5B",
         "queue": "active",
         "runtime": "stable",
         "workers": 1
