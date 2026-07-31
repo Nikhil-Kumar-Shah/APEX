@@ -102,8 +102,10 @@ class TransformersInferenceEngine(BaseInferenceEngine):
                         return_tensors="pt",
                         add_generation_prompt=True
                     ).to(self.device)
-                    inputs = {"input_ids": tensor_inputs}
-                except Exception:
+                    attention_mask = torch.ones_like(tensor_inputs).to(self.device)
+                    inputs = {"input_ids": tensor_inputs, "attention_mask": attention_mask}
+                except Exception as err:
+                    logger.warning(f"apply_chat_template failed: {err}")
                     inputs = None
             if inputs is None:
                 str_prompt = ""
@@ -112,11 +114,14 @@ class TransformersInferenceEngine(BaseInferenceEngine):
                     c = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
                     str_prompt += f"<|im_start|>{r}\n{c}<|im_end|>\n"
                 str_prompt += "<|im_start|>assistant\n"
-                inputs = self.tokenizer(str_prompt, return_tensors="pt").to(self.device)
+                enc = self.tokenizer(str_prompt, return_tensors="pt").to(self.device)
+                inputs = {"input_ids": enc.input_ids, "attention_mask": enc.attention_mask}
         elif isinstance(prompt, str):
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+            enc = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+            inputs = {"input_ids": enc.input_ids, "attention_mask": enc.attention_mask}
         else:
-            inputs = self.tokenizer(str(prompt), return_tensors="pt").to(self.device)
+            enc = self.tokenizer(str(prompt), return_tensors="pt").to(self.device)
+            inputs = {"input_ids": enc.input_ids, "attention_mask": enc.attention_mask}
 
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
@@ -155,11 +160,21 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         else:
             generation_kwargs["do_sample"] = False
 
+        generation_errors = []
+
+        def _run_generation():
+            try:
+                self.model.generate(**generation_kwargs)
+            except Exception as e:
+                logger.error(f"Error in model.generate: {e}", exc_info=True)
+                generation_errors.append(e)
+
         # Run model generation in a background thread to allow streamer consumption
-        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        thread = Thread(target=_run_generation, daemon=True)
         thread.start()
 
         stop_words = ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]
+        tokens_yielded = 0
         try:
             for new_text in streamer:
                 should_stop = False
@@ -170,11 +185,14 @@ class TransformersInferenceEngine(BaseInferenceEngine):
                         should_stop = True
                         break
                 if clean_text:
+                    tokens_yielded += 1
                     yield clean_text
                 if should_stop:
                     break
         finally:
             thread.join()
+            if tokens_yielded == 0 and generation_errors:
+                raise generation_errors[0]
 
     def get_status(self) -> Dict[str, Any]:
         status = {
