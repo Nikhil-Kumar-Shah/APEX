@@ -1,7 +1,6 @@
-"""Chat API for APEX Runtime."""
-
 import json
 import asyncio
+import threading
 from typing import List, Any
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
@@ -36,7 +35,7 @@ def format_chat_prompt(messages: List[Any], tokenizer: Any = None) -> str:
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, req: Request):
-    """OpenAI-compatible Chat Completions with real model token generation."""
+    """OpenAI-compatible Chat Completions with real non-blocking token streaming."""
     model_manager = getattr(req.app.state, "model_manager", None)
     active_engine = getattr(model_manager, "active_engine", None) if model_manager else None
 
@@ -53,17 +52,34 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
 
         if request.stream:
             async def generate_real_stream():
+                loop = asyncio.get_running_loop()
+                token_queue = asyncio.Queue()
+
+                def _produce_tokens():
+                    try:
+                        for token in active_engine.generate_stream(prompt, gen_params):
+                            loop.call_soon_threadsafe(token_queue.put_nowait, token)
+                    except Exception as exc:
+                        loop.call_soon_threadsafe(token_queue.put_nowait, exc)
+                    finally:
+                        loop.call_soon_threadsafe(token_queue.put_nowait, None)
+
+                # Run synchronous generation in background worker thread to keep event loop free
+                threading.Thread(target=_produce_tokens, daemon=True).start()
+
+                # Send initial role chunk
                 yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, role='assistant'))}\n\n"
-                
-                # Iterate over generated tokens from engine
-                token_stream = active_engine.generate_stream(prompt, gen_params)
-                for token in token_stream:
-                    # Immediately abort generation if client cancels or disconnects
+
+                while True:
+                    token = await token_queue.get()
+                    if token is None:
+                        break
+                    if isinstance(token, Exception):
+                        raise token
                     if await req.is_disconnected():
                         break
                     if token:
                         yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, content=token))}\n\n"
-                        await asyncio.sleep(0)
 
                 yield f"data: {json.dumps(serialize_chat_completion_chunk(request.model, finish_reason='stop'))}\n\n"
                 yield f"data: [DONE]\n\n"
