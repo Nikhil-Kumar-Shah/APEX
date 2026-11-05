@@ -2,7 +2,7 @@
 
 **Base URL:** `http://localhost:8000/v1` (or your Cloudflare tunnel URL)
 
-APEX implements an OpenAI-compatible REST API. For the full interactive guide with Python SDK and cURL examples, visit the [APEX Documentation Website](https://nikhil-kumar-shah.github.io/APEX/api.html).
+APEX implements an OpenAI-compatible REST API. For the full interactive guide with Python SDK and cURL examples, visit the [APEX Documentation Website](https://apex.nikhilkshah.me/api.html).
 
 ---
 

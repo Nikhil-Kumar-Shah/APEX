@@ -160,6 +160,32 @@ class GPUOutOfMemoryError(RuntimeErrorBase):
         )
 
 
+class GPUNotFoundError(RuntimeErrorBase):
+    """Raised when GPU execution is required or requested, but no GPU is available."""
+
+    def __init__(self, details: str = "", log_info: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"CUDA GPU is not available: {details}" if details else "CUDA GPU is not available in the current runtime.",
+            cause="The environment lacks an active NVIDIA GPU accelerator, CUDA drivers, or PyTorch was not compiled with CUDA support.",
+            recovery="If running in Google Colab, change runtime type via Runtime -> Change runtime type -> T4 GPU. If local, install CUDA-enabled PyTorch or configure CPU execution.",
+            log_info=log_info,
+            code=ApexErrorCode.GPU_NOT_AVAILABLE,
+        )
+
+
+class HardwareIncompatibleError(RuntimeErrorBase):
+    """Raised when a selected model cannot reasonably execute on available hardware."""
+
+    def __init__(self, model_id: str, reason: str, log_info: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=f"Model '{model_id}' cannot run with current hardware: {reason}",
+            cause="The model's parameter size and memory requirements exceed available system RAM / GPU VRAM.",
+            recovery="Select a smaller model (e.g. Qwen2.5-0.5B or 1.5B) or switch to a GPU runtime with sufficient VRAM (T4, A100).",
+            log_info=log_info,
+            code=ApexErrorCode.GPU_NOT_AVAILABLE,
+        )
+
+
 class CacheCorruptedError(RuntimeErrorBase):
     """Raised when cached model files fail integrity verification."""
 

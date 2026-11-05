@@ -121,7 +121,7 @@ def test_readme_length_and_content():
 
     # Required links
     assert "https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" in full_text
-    assert "https://nikhil-kumar-shah.github.io/APEX/" in full_text
+    assert "https://apex.nikhilkshah.me/" in full_text
     assert "LICENSE" in full_text
     assert "SECURITY.md" in full_text
 

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-red.svg)](https://nikhil-kumar-shah.github.io/APEX/)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-red.svg)](https://apex.nikhilkshah.me/)
 
 ---
 
@@ -49,14 +49,14 @@ Launch the APEX runtime in Google Colab with a single click:
 
 Complete user documentation, API reference, configuration details, and troubleshooting guides are available on the official documentation website:
 
-👉 **[https://nikhil-kumar-shah.github.io/APEX/](https://nikhil-kumar-shah.github.io/APEX/)**
+👉 **[https://apex.nikhilkshah.me/](https://apex.nikhilkshah.me/)**
 
-- [Overview & Architecture](https://nikhil-kumar-shah.github.io/APEX/)
-- [Getting Started Guide](https://nikhil-kumar-shah.github.io/APEX/getting-started.html)
-- [Configuration Reference](https://nikhil-kumar-shah.github.io/APEX/configuration.html)
-- [API & Integration Guide](https://nikhil-kumar-shah.github.io/APEX/api.html)
-- [Troubleshooting & Diagnostics](https://nikhil-kumar-shah.github.io/APEX/troubleshooting.html)
-- [Developer & Contributor Guide](https://nikhil-kumar-shah.github.io/APEX/development.html)
+- [Overview & Architecture](https://apex.nikhilkshah.me/)
+- [Getting Started Guide](https://apex.nikhilkshah.me/getting-started.html)
+- [Configuration Reference](https://apex.nikhilkshah.me/configuration.html)
+- [API & Integration Guide](https://apex.nikhilkshah.me/api.html)
+- [Troubleshooting & Diagnostics](https://apex.nikhilkshah.me/troubleshooting.html)
+- [Developer & Contributor Guide](https://apex.nikhilkshah.me/development.html)
 
 ---
 
@@ -112,7 +112,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-See the [Contributing Guide](CONTRIBUTING.md) and [Development Guide](https://nikhil-kumar-shah.github.io/APEX/development.html) for branch workflows and coding standards.
+See the [Contributing Guide](CONTRIBUTING.md) and [Development Guide](https://apex.nikhilkshah.me/development.html) for branch workflows and coding standards.
 
 ---
 

@@ -64,6 +64,7 @@ class ApexConfig:
     precision: str = "float16"
     hf_token: Optional[str] = None
     revision: Optional[str] = None
+    device: Optional[str] = None
 
     # API settings
     transport: str = "cloudflare"
@@ -109,6 +110,7 @@ class ApexConfig:
                 "precision": self.precision,
                 "hf_token": self.hf_token,
                 "revision": self.revision,
+                "device": self.device,
             },
             "api": {
                 "transport": self.transport,
@@ -141,6 +143,7 @@ class ApexConfig:
             cfg.precision = model_sec.get("precision", data.get("precision", cfg.precision))
             cfg.hf_token = model_sec.get("hf_token", cfg.hf_token)
             cfg.revision = model_sec.get("revision", cfg.revision)
+            cfg.device = model_sec.get("device", data.get("device", cfg.device))
 
         # API section
         api_sec = data.get("api", {})

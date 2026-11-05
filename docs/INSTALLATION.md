@@ -12,7 +12,7 @@ The fastest and easiest way to deploy APEX is with the ready-to-run notebook:
 2. In Google Colab, verify GPU acceleration: **Runtime > Change runtime type > T4 GPU**.
 3. Run **Section 1 — Setup & Run APEX**, select a model, and click **START APEX**.
 
-For the full step-by-step walkthrough, see the [Getting Started Guide](https://nikhil-kumar-shah.github.io/APEX/getting-started.html).
+For the full step-by-step walkthrough, see the [Getting Started Guide](https://apex.nikhilkshah.me/getting-started.html).
 
 ---
 

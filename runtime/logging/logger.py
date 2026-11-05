@@ -170,8 +170,12 @@ def get_widget_handler() -> WidgetLogHandler:
 
 
 def remove_stream_handlers(logger: logging.Logger) -> None:
-    """NO-OP in V1. We want standard streaming output in notebook cells."""
-    pass
+    """Removes standard console/stdout StreamHandlers from logger, leaving memory/widget handlers intact."""
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, (WidgetLogHandler,)):
+            if handler.__class__.__name__ == "LogBufferHandler":
+                continue
+            logger.removeHandler(handler)
 
 
 def setup_logger(

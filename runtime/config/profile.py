@@ -1,5 +1,6 @@
 """Model Profile system for APEX — V1 (Transformers-only defaults)."""
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -185,7 +186,18 @@ def get_preset(repo_id: str) -> Optional[ModelPreset]:
 def estimate_vram(repo_id: str, precision: str = "float16") -> float:
     """Estimates the approximate VRAM required for a model in gigabytes."""
     preset = get_preset(repo_id)
-    base_vram = preset.estimated_vram_gb if preset else 4.0
+    if preset:
+        base_vram = preset.estimated_vram_gb
+    else:
+        # Try parsing parameter count from model ID (e.g. 70b, 14b, 7b, 3b, 1.5b, 0.5b)
+        repo_lower = repo_id.lower()
+        match = re.search(r"(\d+(?:\.\d+)?)\s*b\b", repo_lower)
+        if match:
+            param_billions = float(match.group(1))
+            # Approximately 2 GB per billion parameters in float16
+            base_vram = param_billions * 2.0
+        else:
+            base_vram = 4.0
 
     # Adjust for precision
     if precision == "float32":
@@ -203,14 +215,43 @@ def check_hardware_compatibility(
     repo_id: str,
     vram_total_gb: float,
     cuda_available: bool,
-    precision: str = "float16"
+    precision: str = "float16",
+    ram_available_gb: Optional[float] = None,
 ) -> Tuple[str, str]:
     """Evaluates whether the selected model fits the detected hardware.
 
     Returns:
-        Tuple[str, str]: Status key ('compatible', 'tight', 'warning', 'cpu') and explanation.
+        Tuple[str, str]: Status key ('compatible', 'tight', 'warning', 'cpu', 'incompatible') and explanation.
     """
     if not cuda_available:
+        required_ram = estimate_vram(repo_id, precision) * 1.2
+        if ram_available_gb is not None and ram_available_gb > 0:
+            if required_ram > ram_available_gb:
+                return (
+                    "incompatible",
+                    (
+                        f"Model requires ~{required_ram:.1f} GB RAM, which exceeds available system RAM "
+                        f"({ram_available_gb:.1f} GB). Loading will cause the runtime to crash with Out-Of-Memory. "
+                        "Please select a smaller model (≤ 1.5B parameters) or enable a GPU in Colab via "
+                        "Runtime → Change runtime type → T4 GPU."
+                    ),
+                )
+            elif required_ram > (ram_available_gb * 0.75):
+                return (
+                    "tight",
+                    (
+                        f"Model requires ~{required_ram:.1f} GB RAM, which is close to available system RAM "
+                        f"({ram_available_gb:.1f} GB). Generation on CPU will be slow and memory is tight."
+                    ),
+                )
+            else:
+                return (
+                    "cpu",
+                    (
+                        f"CPU mode active. Estimated RAM usage: ~{required_ram:.1f} GB of {ram_available_gb:.1f} GB available. "
+                        "Note: CPU generation will be significantly slower than GPU acceleration."
+                    ),
+                )
         return (
             "cpu",
             "No GPU detected. Model will execute on CPU (slower generation, ensure sufficient system RAM)."

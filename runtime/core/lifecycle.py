@@ -47,8 +47,10 @@ class RuntimeLifecycle:
             # 2. Drive Mount & Project Detection
             logger.info("Mounting storage drive...", extra={"prefix": "SYSTEM"})
             if not self.drive_manager.mount():
-                logger.error("Error mounting drive. Aborting initialization.", extra={"prefix": "ERROR"})
-                return False
+                logger.warning(
+                    "Google Drive could not be mounted. Proceeding with local VM storage.",
+                    extra={"prefix": "STORAGE"},
+                )
 
             project_root = self.drive_manager.project_root
             logger.info(f"Project Root: {project_root}", extra={"prefix": "SYSTEM"})

@@ -186,6 +186,8 @@ class ModelManager:
             "model_id": model_id,
             "precision": kwargs.get("precision", "float16"),
         }
+        if "device" in kwargs and kwargs["device"]:
+            engine_config["device"] = kwargs["device"]
 
         try:
             engine = get_engine(selected_engine, engine_config)

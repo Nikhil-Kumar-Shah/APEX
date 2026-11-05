@@ -2,7 +2,7 @@
 
 Common issues, diagnostics, and recovery procedures.
 
-For the interactive documentation, visit the [APEX Documentation Website](https://nikhil-kumar-shah.github.io/APEX/troubleshooting.html).
+For the interactive documentation, visit the [APEX Documentation Website](https://apex.nikhilkshah.me/troubleshooting.html).
 
 ---
 

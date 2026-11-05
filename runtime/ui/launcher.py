@@ -395,6 +395,9 @@ class APEXLauncher:
     tunneling, and shutdown operations behind an intuitive two-section interface.
     """
 
+    _active_container: Any = None
+    _active_shutdown_container: Any = None
+
     def __init__(
         self,
         workspace_path: Optional[Path] = None,
@@ -435,12 +438,64 @@ class APEXLauncher:
         # UI Widget references
         self._widgets: Dict[str, Any] = {}
         self._shutdown_widgets: Dict[str, Any] = {}
+        self._active_container: Any = None
+        self._active_shutdown_container: Any = None
+        self.widget: Any = None
+        self.shutdown_widget: Any = None
         self._api_key_revealed = False
 
+    def close(self):
+        """Closes rendered widgets and containers to prevent duplication across cell reruns."""
+        for w in list(self._widgets.values()):
+            try:
+                w.close()
+            except Exception:
+                pass
+        self._widgets.clear()
+
+        for w in list(self._shutdown_widgets.values()):
+            try:
+                w.close()
+            except Exception:
+                pass
+        self._shutdown_widgets.clear()
+
+        if self._active_container is not None:
+            try:
+                self._active_container.close()
+            except Exception:
+                pass
+            self._active_container = None
+
+        if self._active_shutdown_container is not None:
+            try:
+                self._active_shutdown_container.close()
+            except Exception:
+                pass
+            self._active_shutdown_container = None
+
+        if APEXLauncher._active_container is not None:
+            try:
+                APEXLauncher._active_container.close()
+            except Exception:
+                pass
+            APEXLauncher._active_container = None
+
+        if APEXLauncher._active_shutdown_container is not None:
+            try:
+                APEXLauncher._active_shutdown_container.close()
+            except Exception:
+                pass
+            APEXLauncher._active_shutdown_container = None
+
     def _attach_log_handler(self):
-        """Attaches our scoped buffer handler to relevant loggers."""
-        for name in ("runtime", "bootstrap", "uvicorn", "fastapi"):
+        """Attaches our scoped buffer handler to relevant loggers and prevents stdout leakage."""
+        from runtime.logging.logger import remove_stream_handlers
+
+        for name in ("runtime", "runtime.lifecycle", "bootstrap", "uvicorn", "fastapi"):
             l = logging.getLogger(name)
+            remove_stream_handlers(l)
+            l.propagate = False
             if self.log_handler not in l.handlers:
                 l.addHandler(self.log_handler)
                 l.setLevel(logging.INFO)
@@ -468,13 +523,26 @@ class APEXLauncher:
         # Hardware compatibility check
         total_vram = self.hardware_info.get("vram_total_gb") or 0.0
         is_cuda = bool(self.hardware_info.get("cuda_available", False))
+        ram_avail = self.hardware_info.get("ram_available_gb")
+
+        # Explicit GPU check if configured
+        if self.config.device == "cuda" and not is_cuda:
+            return (
+                False,
+                norm_id,
+                ["CUDA GPU was explicitly configured, but no CUDA-capable GPU is available in the current runtime."],
+            )
+
         compat_status, compat_msg = check_hardware_compatibility(
             norm_id,
             total_vram,
             is_cuda,
             precision,
+            ram_available_gb=ram_avail,
         )
-        if compat_status in ("warning", "tight"):
+        if compat_status == "incompatible":
+            return (False, norm_id, [f"Hardware Incompatibility: {compat_msg}"])
+        elif compat_status in ("warning", "tight", "cpu"):
             messages.append(f"Notice: {compat_msg}")
         else:
             messages.append(compat_msg)
@@ -507,7 +575,14 @@ class APEXLauncher:
                 _set_stage(1, "in_progress", "Initializing runtime environment & workspace...")
                 if self.lifecycle is None:
                     self.lifecycle = RuntimeLifecycle(workspace_path=self.workspace_path)
-                    self.lifecycle.startup(interactive=False)
+                    startup_ok = self.lifecycle.startup(interactive=False)
+                    if not startup_ok:
+                        raise RuntimeErrorBase(
+                            message="Runtime environment initialization failed.",
+                            cause="Failed to complete workspace or environment lifecycle initialization.",
+                            recovery="Check file permissions in workspace or restart the notebook kernel.",
+                            code=ApexErrorCode.GENERAL_RUNTIME_ERROR,
+                        )
 
                 cache_path = self.lifecycle.drive_manager.get_path("cache")
                 workspaces_dir = self.lifecycle.drive_manager.persistence_root / "workspaces"
@@ -532,18 +607,23 @@ class APEXLauncher:
                 # ── Step 3: Hardware & GPU Detection
                 _set_stage(3, "in_progress", "Inspecting compute accelerator...")
                 self.hardware_info = detect_environment_hardware()
-                gpu_desc = self.hardware_info["gpu_name"]
-                if self.hardware_info.get("vram_total_gb"):
-                    gpu_desc += f" ({self.hardware_info['vram_total_gb']} GB VRAM)"
-                _set_stage(3, "completed", f"Active device: {self.hardware_info['device']} · {gpu_desc}")
+                if self.hardware_info.get("cuda_available"):
+                    self.config.device = "cuda"
+                    gpu_desc = f"{self.hardware_info['gpu_name']} ({self.hardware_info['vram_total_gb']} GB VRAM)"
+                else:
+                    self.config.device = "cpu"
+                    gpu_desc = self.hardware_info["gpu_name"]
+                _set_stage(3, "completed", f"Active device: {self.config.device} · {gpu_desc}")
 
                 # ── Step 4: Model Resolution
                 _set_stage(4, "in_progress", f"Resolving {self.config.model_id}...")
                 norm_id, is_val, val_err = normalize_hf_model_id(self.config.model_id)
                 if not is_val:
                     raise RuntimeErrorBase(
-                        error_code=ApexErrorCode.MODEL_INVALID,
                         message=val_err or "Invalid Model ID",
+                        cause="Provided model ID or URL could not be parsed as a valid Hugging Face repository.",
+                        recovery="Check the model name format (e.g. 'Qwen/Qwen2.5-0.5B') or Hugging Face URL.",
+                        code=ApexErrorCode.MODEL_FILES_INVALID,
                     )
                 self.config.model_id = norm_id
                 _set_stage(4, "completed", f"Resolved repository ID: {norm_id}")
@@ -559,8 +639,9 @@ class APEXLauncher:
                 )
                 _set_stage(5, "completed", "Model weights downloaded and verified in cache")
 
-                # ── Step 6: Model Loading into VRAM
-                _set_stage(6, "in_progress", f"Loading weights ({self.config.precision})...")
+                # ── Step 6: Model Loading into VRAM / RAM
+                target_mem = "VRAM" if self.config.device == "cuda" else "system RAM"
+                _set_stage(6, "in_progress", f"Loading weights into {target_mem} ({self.config.precision})...")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("MODEL_LOADING")
                 self.model_manager.load_model(
@@ -568,8 +649,9 @@ class APEXLauncher:
                     precision=self.config.precision,
                     revision=self.config.revision,
                     hf_token=self.config.hf_token,
+                    device=self.config.device,
                 )
-                _set_stage(6, "completed", f"Model allocated in VRAM ({self.config.precision})")
+                _set_stage(6, "completed", f"Model allocated in {target_mem} ({self.config.precision})")
 
                 # ── Step 7: Inference Engine Initialization
                 _set_stage(7, "in_progress", "Initializing inference engine and warm-up...")
@@ -577,8 +659,10 @@ class APEXLauncher:
                     self.orchestrator.state_machine.transition_to("MODEL_READY")
                 if not self.model_manager.is_loaded:
                     raise RuntimeErrorBase(
-                        error_code=ApexErrorCode.MODEL_LOAD_FAILED,
                         message="Model failed to initialize properly in memory.",
+                        cause="Inference engine active engine is not loaded.",
+                        recovery="Verify that the selected model architecture is supported.",
+                        code=ApexErrorCode.MODEL_LOAD_FAILED,
                     )
                 _set_stage(7, "completed", "Inference engine operational")
 
@@ -698,10 +782,28 @@ class APEXLauncher:
         return True
 
     def _render_hardware_html(self) -> str:
-        """Renders the detected hardware summary grid."""
+        """Renders the detected hardware summary grid and warnings."""
         hw = self.hardware_info
         vram_str = f"{hw['vram_total_gb']} GB" if hw.get("vram_total_gb") else "N/A (CPU)"
         ram_str = f"{hw['ram_total_gb']} GB ({hw['ram_available_gb']} GB free)"
+
+        warning_banner = ""
+        if not hw.get("cuda_available"):
+            if hw.get("is_colab"):
+                warning_banner = """
+                <div style="background:#fffbeb; border:1px solid #fde68a; border-left:4px solid #f59e0b; border-radius:6px; padding:10px 14px; margin-top:12px; font-size:12px; color:#92400e; line-height:1.45;">
+                    <b>⚠️ Colab CPU Runtime Active (No GPU Detected)</b><br>
+                    You are running on Google Colab's standard CPU runtime without GPU acceleration.<br>
+                    Inference will be slow, and models larger than 2B parameters will exceed available RAM (12.7 GB) and crash.<br>
+                    <b>Recommendation:</b> Switch to a free GPU via <b>Runtime → Change runtime type → T4 GPU → Save</b> in the Colab menu.
+                </div>
+                """
+            else:
+                warning_banner = """
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #64748b; border-radius:6px; padding:10px 14px; margin-top:12px; font-size:12px; color:#334155; line-height:1.45;">
+                    <b>ℹ️ CPU Mode Active</b>: No CUDA GPU detected. Models will execute on CPU. Ensure sufficient system RAM is available.
+                </div>
+                """
 
         return f"""
         <div class="apex-card">
@@ -728,6 +830,7 @@ class APEXLauncher:
                     <span class="apex-hw-value">{html.escape(hw['device'])}</span>
                 </div>
             </div>
+            {warning_banner}
         </div>
         """
 
@@ -845,6 +948,20 @@ print(response.choices[0].message.content)"""
             from IPython.display import HTML, display
         except ImportError:
             return self._render_headless("Section 1 — Setup & Run APEX")
+
+        # Close any previous active Section 1 container to avoid duplicate widgets on rerun
+        if APEXLauncher._active_container is not None:
+            try:
+                APEXLauncher._active_container.close()
+            except Exception:
+                pass
+            APEXLauncher._active_container = None
+        if self._active_container is not None:
+            try:
+                self._active_container.close()
+            except Exception:
+                pass
+            self._active_container = None
 
         display(HTML(get_launcher_css()))
 
@@ -1161,7 +1278,10 @@ print(completion.choices[0].message.content)"""
         )
 
         display(container)
-        return container
+        APEXLauncher._active_container = container
+        self._active_container = container
+        self.widget = container
+        return None
 
     def render_shutdown(self) -> Any:
         """Renders Section 2 — Shutdown APEX in the notebook."""
@@ -1170,6 +1290,20 @@ print(completion.choices[0].message.content)"""
             from IPython.display import HTML, display
         except ImportError:
             return self._render_headless("Section 2 — Shutdown APEX")
+
+        # Close any previous active Section 2 container to avoid duplicate widgets on rerun
+        if APEXLauncher._active_shutdown_container is not None:
+            try:
+                APEXLauncher._active_shutdown_container.close()
+            except Exception:
+                pass
+            APEXLauncher._active_shutdown_container = None
+        if self._active_shutdown_container is not None:
+            try:
+                self._active_shutdown_container.close()
+            except Exception:
+                pass
+            self._active_shutdown_container = None
 
         display(HTML(get_launcher_css()))
 
@@ -1251,7 +1385,10 @@ print(completion.choices[0].message.content)"""
         )
 
         display(container)
-        return container
+        APEXLauncher._active_shutdown_container = container
+        self._active_shutdown_container = container
+        self.shutdown_widget = container
+        return None
 
     def _render_headless(self, section_name: str) -> str:
         """CLI / Non-interactive fallback."""

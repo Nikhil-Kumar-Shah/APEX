@@ -27,8 +27,20 @@ class DriveManager:
         self.mount_point = Path("/content/drive")
         self._persistence_root: Optional[Path] = None
 
+    def is_drive_mounted(self) -> bool:
+        """Checks if Google Drive is already mounted and accessible.
+
+        Returns:
+            bool: True if mount_point and MyDrive subdirectory exist.
+        """
+        my_drive = self.mount_point / "MyDrive"
+        return self.mount_point.exists() and my_drive.exists()
+
     def mount(self) -> bool:
         """Mounts Google Drive if running in Google Colab.
+
+        Reuses an existing mount if already available to avoid blocking daemon
+        threads or prompting for confirmation repeatedly.
 
         Returns:
             bool: True if mounted successfully or if running locally, False on failure.
@@ -38,12 +50,21 @@ class DriveManager:
             self._persistence_root = self._local_root
             return True
 
+        # Check if already mounted in the runtime
+        if self.is_drive_mounted():
+            try:
+                self._persistence_root = self.mount_point / "MyDrive" / "APEX"
+                self._persistence_root.mkdir(parents=True, exist_ok=True)
+                return True
+            except Exception:
+                self._persistence_root = self._local_root
+                return False
+
         try:
-            # Dynamically import and run colab drive mount
+            # Dynamically import and run colab drive mount without force_remount
             from google.colab import drive
 
-            drive.mount(str(self.mount_point), force_remount=True)
-            # Typically, notebooks are stored in My Drive or a subfolder.
+            drive.mount(str(self.mount_point))
             self._persistence_root = self.mount_point / "MyDrive" / "APEX"
             self._persistence_root.mkdir(parents=True, exist_ok=True)
 

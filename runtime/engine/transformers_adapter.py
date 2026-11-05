@@ -5,7 +5,7 @@ import sys
 import logging
 from typing import Any, Dict, Generator, Optional
 
-from runtime.core.errors import EngineUnavailableError, GPUOutOfMemoryError
+from runtime.core.errors import EngineUnavailableError, GPUNotFoundError, GPUOutOfMemoryError
 from runtime.engine.base import BaseInferenceEngine
 
 logger = logging.getLogger("runtime.engine.transformers")
@@ -37,7 +37,21 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         params = parameters or {}
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        req_device = params.get("device")
+        if req_device:
+            dev_str = str(req_device).lower().strip()
+            if dev_str.startswith("cuda"):
+                if not torch.cuda.is_available():
+                    raise GPUNotFoundError(
+                        f"Device '{req_device}' was explicitly requested, but CUDA is not available in the current runtime."
+                    )
+                self.device = "cuda"
+            elif dev_str == "cpu":
+                self.device = "cpu"
+            else:
+                self.device = str(req_device)
+        else:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # Determine precision and device mappings
         torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
