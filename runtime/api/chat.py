@@ -128,26 +128,42 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
             else:
                 raw_msgs.append({"role": getattr(m, "role", "user"), "content": getattr(m, "content", "")})
 
+        memory = _get_memory()
+        convo_id = request.conversation_id
+        effective_messages: List[Dict[str, str]] = []
+
+        if convo_id:
+            try:
+                convo_data = memory.load_conversation(convo_id)
+            except Exception:
+                try:
+                    convo_data = memory.create_conversation(conversation_id=convo_id)
+                except Exception:
+                    convo_data = {"messages": []}
+
+            saved_msgs = convo_data.get("messages", [])
+            for sm in saved_msgs:
+                effective_messages.append({"role": sm.get("role", "user"), "content": sm.get("content", "")})
+
+        if len(raw_msgs) > 1:
+            effective_messages = raw_msgs
+        else:
+            if raw_msgs:
+                effective_messages.append(raw_msgs[0])
+                if convo_id:
+                    try:
+                        memory.append_message(convo_id, raw_msgs[0]["role"], raw_msgs[0]["content"])
+                    except Exception as e:
+                        logger.warning(f"Failed to record user turn in memory: {e}")
+
         # Apply sliding window context guard
-        guarded_msgs = apply_context_window_guard(raw_msgs)
+        guarded_msgs = apply_context_window_guard(effective_messages)
 
         gen_params = {
             "max_new_tokens": getattr(request, "max_tokens", 512) or 512,
             "temperature": getattr(request, "temperature", 0.7) or 0.7,
             "top_p": getattr(request, "top_p", 0.9) or 0.9,
         }
-
-        memory = _get_memory()
-        convo_id = request.conversation_id
-
-        # Persist incoming user turn if conversation_id provided
-        if convo_id and raw_msgs:
-            try:
-                last_user_msg = next((m for m in reversed(raw_msgs) if m["role"] == "user"), None)
-                if last_user_msg:
-                    memory.append_message(convo_id, "user", last_user_msg["content"])
-            except Exception as e:
-                logger.warning(f"Failed to record user turn in memory: {e}")
 
         if request.stream:
             async def generate_real_stream():

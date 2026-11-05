@@ -1,4 +1,4 @@
-"""Self-contained, responsive AI Communication Interface for APEX."""
+"""Self-contained, responsive, professional AI Communication Interface for APEX."""
 
 def get_web_interface_html() -> str:
     """Returns the complete, production-grade single-page AI Chat Application."""
@@ -10,23 +10,29 @@ def get_web_interface_html() -> str:
     <title>APEX — AI Communication Interface</title>
     <style>
         :root {
-            --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-tertiary: #21262d;
-            --border-color: #30363d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --accent-blue: #58a6ff;
-            --accent-green: #238636;
-            --accent-green-hover: #2ea043;
-            --accent-red: #f85149;
-            --user-bubble: #1f2937;
-            --code-bg: #090d13;
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --bg-card: #162032;
+            --border-color: #374151;
+            --border-subtle: #1f2937;
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent-red: #ef4444;
+            --accent-red-hover: #dc2626;
+            --accent-red-subtle: rgba(239, 68, 68, 0.12);
+            --accent-blue: #38bdf8;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --user-bubble: #1e293b;
+            --assistant-bubble: #131c2e;
+            --code-bg: #070b12;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
             background-color: var(--bg-primary);
             color: var(--text-primary);
             display: flex;
@@ -36,53 +42,71 @@ def get_web_interface_html() -> str:
 
         /* ── Sidebar ── */
         .sidebar {
-            width: 270px;
+            width: 280px;
             background-color: var(--bg-secondary);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
-            transition: transform 0.3s ease;
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 100;
         }
         .sidebar-header {
             padding: 16px;
             border-bottom: 1px solid var(--border-color);
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 12px;
         }
         .brand {
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--accent-blue);
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .new-chat-btn {
-            background-color: var(--accent-green);
+        .brand-badge {
+            background: var(--accent-red);
             color: #ffffff;
-            border: none;
-            padding: 8px 12px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .new-chat-btn {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 9px 14px;
             border-radius: 6px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 6px;
+            justify-content: center;
+            gap: 8px;
             width: 100%;
-            margin-top: 10px;
+            transition: all 0.15s ease;
         }
-        .new-chat-btn:hover { background-color: var(--accent-green-hover); }
+        .new-chat-btn:hover {
+            background-color: var(--accent-red);
+            border-color: var(--accent-red);
+            color: #ffffff;
+        }
 
         .convos-list {
             flex: 1;
             overflow-y: auto;
-            padding: 12px 8px;
+            padding: 10px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
         .convo-item {
-            padding: 9px 12px;
+            padding: 8px 10px;
             border-radius: 6px;
             font-size: 13px;
             color: var(--text-secondary);
@@ -90,39 +114,61 @@ def get_web_interface_html() -> str:
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 4px;
+            gap: 6px;
+            transition: all 0.12s ease;
+        }
+        .convo-item:hover {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .convo-item.active {
+            background-color: var(--accent-red-subtle);
+            color: var(--text-primary);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            font-weight: 600;
+        }
+        .convo-title {
+            overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            overflow: hidden;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
-        .convo-item:hover { background-color: var(--bg-tertiary); color: var(--text-primary); }
-        .convo-item.active { background-color: #1f6feb26; color: var(--accent-blue); border: 1px solid #388bfd4d; }
         .convo-delete-btn {
             opacity: 0;
             background: none;
             border: none;
-            color: var(--accent-red);
+            color: var(--text-muted);
             cursor: pointer;
-            font-size: 12px;
-            padding: 2px 4px;
+            font-size: 13px;
+            padding: 3px 5px;
+            border-radius: 4px;
+            transition: all 0.15s;
         }
-        .convo-item:hover .convo-delete-btn { opacity: 1; }
+        .convo-item:hover .convo-delete-btn { opacity: 0.8; }
+        .convo-delete-btn:hover { color: var(--accent-red); opacity: 1; background: rgba(239, 68, 68, 0.15); }
 
         .sidebar-footer {
-            padding: 12px;
+            padding: 12px 14px;
             border-top: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
-            font-size: 12px;
+            font-size: 11px;
+            background: rgba(0,0,0,0.15);
         }
         .footer-action-btn {
             background: none;
             border: none;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             cursor: pointer;
-            padding: 4px;
+            padding: 3px 6px;
+            border-radius: 4px;
+            transition: color 0.15s;
         }
-        .footer-action-btn:hover { color: var(--text-primary); text-decoration: underline; }
+        .footer-action-btn:hover { color: var(--text-primary); }
+        .footer-action-btn.danger:hover { color: var(--accent-red); }
 
         /* ── Main Viewport ── */
         .main-viewport {
@@ -141,54 +187,92 @@ def get_web_interface_html() -> str:
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 20px;
+            padding: 0 16px;
         }
-        .nav-left { display: flex; align-items: center; gap: 12px; }
-        .menu-toggle { display: none; background: none; border: none; color: var(--text-primary); font-size: 20px; cursor: pointer; }
+        .nav-left { display: flex; align-items: center; gap: 10px; }
+        .menu-toggle { display: none; background: none; border: none; color: var(--text-primary); font-size: 18px; cursor: pointer; }
+
         .model-badge {
-            background-color: #21262d;
+            background-color: var(--bg-card);
             border: 1px solid var(--border-color);
             padding: 4px 10px;
-            border-radius: 14px;
+            border-radius: 6px;
             font-size: 12px;
-            color: #c9d1d9;
+            color: var(--text-primary);
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+
         .status-pill {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
-            color: #3fb950;
+            padding: 4px 9px;
+            border-radius: 6px;
+            border: 1px solid transparent;
         }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: #3fb950; }
+        .status-pill.online {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+        .status-pill.loading {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--accent-amber);
+            border-color: rgba(245, 158, 11, 0.25);
+        }
+        .status-pill.error {
+            background: var(--accent-red-subtle);
+            color: var(--accent-red);
+            border-color: rgba(239, 68, 68, 0.25);
+        }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-pill.online .status-dot { background-color: var(--accent-green); }
+        .status-pill.loading .status-dot { background-color: var(--accent-amber); animation: pulse 1.2s infinite; }
+        .status-pill.error .status-dot { background-color: var(--accent-red); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
         .api-drawer-btn {
             background: var(--bg-tertiary);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
             border-radius: 6px;
-            padding: 6px 12px;
+            padding: 5px 11px;
             font-size: 12px;
             cursor: pointer;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s;
         }
-        .api-drawer-btn:hover { background: #30363d; }
+        .api-drawer-btn:hover {
+            border-color: var(--accent-red);
+            color: #ffffff;
+        }
 
         /* ── Messages Container ── */
         .messages-container {
             flex: 1;
             overflow-y: auto;
-            padding: 24px 20px;
+            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 16px;
             scroll-behavior: smooth;
         }
         .message-row {
             display: flex;
             width: 100%;
-            max-width: 820px;
+            max-width: 840px;
             margin: 0 auto;
         }
         .message-row.user { justify-content: flex-end; }
@@ -198,20 +282,22 @@ def get_web_interface_html() -> str:
             max-width: 85%;
             padding: 12px 16px;
             border-radius: 8px;
-            line-height: 1.55;
+            line-height: 1.6;
             font-size: 14px;
             position: relative;
             word-break: break-word;
         }
         .message-row.user .message-bubble {
             background-color: var(--user-bubble);
-            border: 1px solid #374151;
-            color: #f3f4f6;
+            border: 1px solid #334155;
+            color: #f8fafc;
+            border-bottom-right-radius: 2px;
         }
         .message-row.assistant .message-bubble {
-            background-color: var(--bg-secondary);
+            background-color: var(--assistant-bubble);
             border: 1px solid var(--border-color);
             color: var(--text-primary);
+            border-bottom-left-radius: 2px;
             width: 100%;
             max-width: 100%;
         }
@@ -219,139 +305,208 @@ def get_web_interface_html() -> str:
         .avatar-label {
             font-size: 11px;
             font-weight: 700;
-            text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 6px;
-            color: var(--accent-blue);
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             gap: 6px;
+        }
+        .message-row.assistant .avatar-label {
+            color: var(--accent-red);
         }
         .attachment-tag {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: #21262d;
-            border: 1px solid #30363d;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             padding: 3px 8px;
             font-size: 11px;
             margin-top: 8px;
-            color: #79c0ff;
+            color: var(--accent-blue);
         }
 
         /* ── Markdown & Code Styling ── */
-        .message-bubble pre {
-            background: var(--code-bg);
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 12px;
-            overflow-x: auto;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            font-size: 12px;
+        .message-bubble p { margin-bottom: 8px; }
+        .message-bubble p:last-child { margin-bottom: 0; }
+        .message-bubble ul, .message-bubble ol { margin: 6px 0 6px 22px; }
+        .message-bubble li { margin-bottom: 3px; }
+        .message-bubble blockquote {
+            border-left: 3px solid var(--accent-red);
+            padding-left: 10px;
+            color: var(--text-secondary);
+            margin: 6px 0;
+        }
+        .message-bubble table {
+            border-collapse: collapse;
+            width: 100%;
             margin: 8px 0;
-            position: relative;
-            color: #79c0ff;
+            font-size: 13px;
+        }
+        .message-bubble th, .message-bubble td {
+            border: 1px solid var(--border-color);
+            padding: 6px 10px;
+            text-align: left;
+        }
+        .message-bubble th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+        }
+
+        .code-block-wrapper {
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 10px;
+            background: #111827;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 11px;
+            font-family: monospace;
+            color: var(--text-secondary);
         }
         .copy-code-btn {
-            position: absolute;
-            top: 6px;
-            right: 6px;
-            background: #21262d;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
             border-radius: 4px;
             font-size: 11px;
-            padding: 3px 8px;
+            padding: 2px 7px;
             cursor: pointer;
+            transition: all 0.15s;
         }
-        .copy-code-btn:hover { background: #30363d; }
+        .copy-code-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+        .message-bubble pre {
+            padding: 10px 12px;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12.5px;
+            line-height: 1.5;
+            color: #e2e8f0;
+            margin: 0;
+        }
         .message-bubble code {
-            background: #21262d;
-            padding: 2px 6px;
+            background: rgba(255,255,255,0.08);
+            padding: 2px 5px;
             border-radius: 4px;
             font-family: monospace;
             font-size: 0.9em;
-            color: #ff7b72;
+            color: #fca5a5;
         }
         .message-bubble pre code { background: none; padding: 0; color: inherit; }
-        .message-bubble p { margin-bottom: 8px; }
-        .message-bubble p:last-child { margin-bottom: 0; }
-        .message-bubble ul, .message-bubble ol { margin: 8px 0 8px 20px; }
 
         .streaming-cursor::after {
             content: "▍";
-            color: var(--accent-blue);
-            animation: blink 0.9s infinite;
+            color: var(--accent-red);
+            animation: blink 0.8s infinite;
         }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* ── Assistant Actions Toolbar ── */
+        .assistant-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .msg-action-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 3px 6px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.15s;
+        }
+        .msg-action-btn:hover { color: var(--text-primary); }
 
         /* ── Empty Welcome State ── */
         .empty-state {
             margin: auto;
             text-align: center;
-            max-width: 600px;
+            max-width: 620px;
             padding: 20px;
         }
-        .empty-state h2 { font-size: 24px; color: var(--accent-blue); margin-bottom: 8px; }
-        .empty-state p { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; }
+        .empty-state h2 { font-size: 22px; color: var(--text-primary); margin-bottom: 6px; }
+        .empty-state p { font-size: 13.5px; color: var(--text-secondary); margin-bottom: 24px; line-height: 1.5; }
         .prompt-suggestions {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            gap: 10px;
             text-align: left;
         }
         .prompt-card {
-            background: var(--bg-secondary);
+            background: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 12px 14px;
+            padding: 12px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
         }
-        .prompt-card:hover { border-color: var(--accent-blue); background: var(--bg-tertiary); }
-        .prompt-card-title { font-size: 13px; font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
-        .prompt-card-desc { font-size: 12px; color: var(--text-secondary); }
+        .prompt-card:hover {
+            border-color: var(--accent-red);
+            background: var(--bg-tertiary);
+            transform: translateY(-1px);
+        }
+        .prompt-card-title { font-size: 13px; font-weight: 600; color: #f9fafb; margin-bottom: 3px; }
+        .prompt-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
 
         /* ── Message Composer ── */
         .composer-container {
             padding: 12px 20px 20px 20px;
-            max-width: 820px;
+            max-width: 840px;
             width: 100%;
             margin: 0 auto;
         }
         .composer-box {
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 10px 14px;
+            border-radius: 8px;
+            padding: 8px 12px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            gap: 6px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+            transition: border-color 0.15s;
         }
-        .composer-box:focus-within { border-color: var(--accent-blue); }
+        .composer-box:focus-within { border-color: var(--accent-red); }
 
         .attachment-preview-bar {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
         }
         .preview-chip {
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 4px 10px;
-            font-size: 12px;
+            border-radius: 5px;
+            padding: 3px 8px;
+            font-size: 11.5px;
             display: flex;
             align-items: center;
-            gap: 8px;
-            color: #79c0ff;
+            gap: 6px;
+            color: var(--accent-blue);
         }
         .chip-remove-btn {
             background: none;
             border: none;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             cursor: pointer;
             font-weight: bold;
         }
@@ -360,7 +515,7 @@ def get_web_interface_html() -> str:
         .composer-input-row {
             display: flex;
             align-items: flex-end;
-            gap: 10px;
+            gap: 8px;
         }
         textarea.message-input {
             flex: 1;
@@ -369,7 +524,7 @@ def get_web_interface_html() -> str:
             color: var(--text-primary);
             font-size: 14px;
             resize: none;
-            min-height: 40px;
+            min-height: 38px;
             max-height: 180px;
             outline: none;
             font-family: inherit;
@@ -380,49 +535,50 @@ def get_web_interface_html() -> str:
             border: none;
             color: var(--text-secondary);
             cursor: pointer;
-            font-size: 18px;
+            font-size: 16px;
             padding: 6px;
-            border-radius: 6px;
+            border-radius: 5px;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.15s;
         }
         .action-icon-btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
 
         .send-btn {
-            background: var(--accent-green);
+            background: var(--accent-red);
             color: #ffffff;
             border: none;
             border-radius: 6px;
-            width: 34px;
-            height: 34px;
+            width: 32px;
+            height: 32px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            font-size: 15px;
-            transition: background-color 0.2s;
+            font-size: 14px;
+            transition: background-color 0.15s;
         }
-        .send-btn:hover { background: var(--accent-green-hover); }
-        .send-btn.stop-mode { background: var(--accent-red); }
-        .send-btn.stop-mode:hover { background: #da3633; }
-        .send-btn:disabled { background: #343942; color: #8b949e; cursor: not-allowed; }
+        .send-btn:hover { background: var(--accent-red-hover); }
+        .send-btn.stop-mode { background: #475569; }
+        .send-btn.stop-mode:hover { background: #334155; }
+        .send-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
 
         /* ── Developer Drawer ── */
         .drawer-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.55);
             display: none;
             z-index: 200;
         }
         .drawer {
             position: fixed;
-            top: 0; right: -420px; bottom: 0;
-            width: 400px;
+            top: 0; right: -440px; bottom: 0;
+            width: 420px;
             background: var(--bg-secondary);
             border-left: 1px solid var(--border-color);
-            transition: right 0.3s ease;
+            transition: right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 201;
             display: flex;
             flex-direction: column;
@@ -438,16 +594,17 @@ def get_web_interface_html() -> str:
             padding-bottom: 12px;
             margin-bottom: 16px;
         }
-        .drawer-title { font-size: 16px; font-weight: 700; color: var(--accent-blue); }
-        .drawer-close-btn { background: none; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
+        .drawer-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+        .drawer-close-btn { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; }
+        .drawer-close-btn:hover { color: var(--text-primary); }
 
         /* ── Mobile Responsive ── */
         @media (max-width: 768px) {
             .sidebar {
                 position: fixed;
-                top: 0; bottom: 0; left: -270px;
+                top: 0; bottom: 0; left: -280px;
             }
-            .sidebar.mobile-open { transform: translateX(270px); }
+            .sidebar.mobile-open { transform: translateX(280px); }
             .menu-toggle { display: block; }
             .prompt-suggestions { grid-template-columns: 1fr; }
             .drawer { width: 100%; right: -100%; }
@@ -459,16 +616,17 @@ def get_web_interface_html() -> str:
     <!-- ── Sidebar ── -->
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <div class="brand">🌌 APEX AI</div>
-        </div>
-        <div style="padding: 0 12px;">
+            <div class="brand">
+                <span>🌌 APEX RUNTIME</span>
+                <span class="brand-badge">AI</span>
+            </div>
             <button class="new-chat-btn" onclick="startNewConversation()">+ New Conversation</button>
         </div>
         <div class="convos-list" id="convosList"></div>
         <div class="sidebar-footer">
             <button class="footer-action-btn" onclick="exportActiveChat('md')">Export (.md)</button>
             <button class="footer-action-btn" onclick="exportActiveChat('json')">Export (.json)</button>
-            <button class="footer-action-btn" onclick="clearAllConversations()">Clear All</button>
+            <button class="footer-action-btn danger" onclick="clearAllConversations()">Clear All</button>
         </div>
     </div>
 
@@ -479,9 +637,13 @@ def get_web_interface_html() -> str:
             <div class="nav-left">
                 <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
                 <div class="model-badge" id="modelPill">Loading Model...</div>
-                <div class="status-pill">
+                <div class="status-pill online" id="apiStatusPill">
                     <div class="status-dot"></div>
-                    <span id="connLabel">CONNECTED</span>
+                    <span id="apiStatusText">API Online</span>
+                </div>
+                <div class="status-pill loading" id="modelStatusPill">
+                    <div class="status-dot"></div>
+                    <span id="modelStatusText">Model Initializing</span>
                 </div>
             </div>
             <div>
@@ -492,8 +654,8 @@ def get_web_interface_html() -> str:
         <!-- Messages Container -->
         <div class="messages-container" id="messagesContainer">
             <div class="empty-state" id="emptyState">
-                <h2>APEX Assistant</h2>
-                <p>Adaptive Platform for Unified AI Configuration & Direct Model Inference</p>
+                <h2>Welcome to APEX</h2>
+                <p>Universal AI communication interface powered by direct open-source inference.</p>
                 <div class="prompt-suggestions">
                     <div class="prompt-card" onclick="selectSuggestion('Explain quantum computing simply with an analogy.')">
                         <div class="prompt-card-title">💡 Clear Explanations</div>
@@ -521,8 +683,8 @@ def get_web_interface_html() -> str:
                 <div class="attachment-preview-bar" id="previewBar" style="display:none;"></div>
                 <div class="composer-input-row">
                     <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileSelect(event)">
-                    <button class="action-icon-btn" title="Attach Document (TXT, PDF, DOCX, CSV, JSON)" onclick="document.getElementById('fileInput').click()">📎</button>
-                    <textarea class="message-input" id="messageInput" placeholder="Ask anything or attach a document... (Enter to send, Shift+Enter for newline)" rows="1" oninput="autoResize(this)" onkeydown="handleKeyDown(event)"></textarea>
+                    <button class="action-icon-btn" title="Attach Document (TXT, PDF, PY, JSON, CSV)" onclick="document.getElementById('fileInput').click()">📎</button>
+                    <textarea class="message-input" id="messageInput" placeholder="Message the model... (Enter to send, Shift+Enter for newline)" rows="1" oninput="autoResize(this)" onkeydown="handleKeyDown(event)"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="handleSendAction()">➔</button>
                 </div>
             </div>
@@ -533,23 +695,35 @@ def get_web_interface_html() -> str:
     <div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer(false)"></div>
     <div class="drawer" id="drawer">
         <div class="drawer-header">
-            <div class="drawer-title">API Integration & Access</div>
+            <div class="drawer-title">API Integration & Credentials</div>
             <button class="drawer-close-btn" onclick="toggleDrawer(false)">✕</button>
         </div>
         <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
             <div><b>Active Model:</b> <span id="drawerModel" style="color:var(--text-primary); font-family:monospace;">—</span></div>
             <div style="margin-top:6px;"><b>Public Endpoint:</b> <span id="drawerEndpoint" style="color:var(--accent-blue); font-family:monospace;">—</span></div>
             <div style="margin-top:6px;"><b>OpenAI Base URL:</b> <span id="drawerBaseUrl" style="color:var(--accent-blue); font-family:monospace;">—</span></div>
-            <div style="margin-top:6px;"><b>API Key:</b> <span id="authStatusBadge" style="color:#3fb950;">Configured</span></div>
+            <div style="margin-top:6px;"><b>API Key Status:</b> <span id="authStatusBadge" style="color:var(--accent-green);">Configured</span></div>
             <div style="margin-top:8px;">
-                <input id="drawerApiKeyInput" type="password" placeholder="Enter API Key (if enabled)..." style="width:100%; background:#161b22; border:1px solid #30363d; color:#c9d1d9; border-radius:6px; padding:6px 10px; font-size:12px; box-sizing:border-box;" onchange="saveApiKey(this.value)">
+                <input id="drawerApiKeyInput" type="password" placeholder="Enter API Key (if authentication enabled)..." style="width:100%; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:7px 10px; font-size:12px; box-sizing:border-box;" onchange="saveApiKey(this.value)">
             </div>
 
-            <div style="margin-top: 16px; font-weight: 700; color: var(--text-primary);">Python OpenAI Client:</div>
-            <pre style="margin-top: 8px;" id="pythonCodeSnippet"></pre>
+            <div style="margin-top: 18px; font-weight: 700; color: var(--text-primary);">Python OpenAI Client:</div>
+            <div class="code-block-wrapper">
+                <div class="code-header">
+                    <span>python</span>
+                    <button class="copy-code-btn" onclick="copySnippet('pythonCodeSnippet')">Copy</button>
+                </div>
+                <pre id="pythonCodeSnippet"></pre>
+            </div>
 
-            <div style="margin-top: 16px; font-weight: 700; color: var(--text-primary);">cURL Request:</div>
-            <pre style="margin-top: 8px;" id="curlCodeSnippet"></pre>
+            <div style="margin-top: 14px; font-weight: 700; color: var(--text-primary);">cURL Request:</div>
+            <div class="code-block-wrapper">
+                <div class="code-header">
+                    <span>bash</span>
+                    <button class="copy-code-btn" onclick="copySnippet('curlCodeSnippet')">Copy</button>
+                </div>
+                <pre id="curlCodeSnippet"></pre>
+            </div>
         </div>
     </div>
 
@@ -559,14 +733,18 @@ def get_web_interface_html() -> str:
         let activeConversationId = null;
         let isStreaming = false;
         let abortController = null;
-        let activeAttachments = []; // { id, filename, bytes, text }
-        let currentModelId = "Qwen/Qwen2.5-0.5B";
+        let activeAttachments = [];
+        let currentModelId = "Qwen/Qwen2.5-0.5B-Instruct";
+        let isModelReady = false;
+        let lastUserMessage = "";
 
         // Initialization
         window.addEventListener("DOMContentLoaded", async () => {
             await fetchRuntimeInfo();
             await loadConversationsList();
             setupDragAndDrop();
+            // Periodic health polling
+            setInterval(fetchRuntimeInfo, 4000);
         });
 
         async function fetchRuntimeInfo() {
@@ -574,13 +752,46 @@ def get_web_interface_html() -> str:
                 const res = await fetch("/health");
                 if (res.ok) {
                     const data = await res.json();
-                    currentModelId = data.model_loaded || "Qwen/Qwen2.5-0.5B";
-                    document.getElementById("modelPill").textContent = "Model: " + currentModelId.split("/").pop();
+                    currentModelId = data.model_loaded && data.model_loaded !== "none" ? data.model_loaded : currentModelId;
+                    isModelReady = !!data.is_model_ready;
+
+                    // Update UI Pills
+                    const shortName = currentModelId.split("/").pop();
+                    document.getElementById("modelPill").textContent = "Model: " + shortName;
+
+                    const apiPill = document.getElementById("apiStatusPill");
+                    apiPill.className = "status-pill online";
+                    document.getElementById("apiStatusText").textContent = "API Online";
+
+                    const modelPill = document.getElementById("modelStatusPill");
+                    if (isModelReady) {
+                        modelPill.className = "status-pill online";
+                        document.getElementById("modelStatusText").textContent = "Model Ready";
+                    } else if (data.model === "loading") {
+                        modelPill.className = "status-pill loading";
+                        document.getElementById("modelStatusText").textContent = "Loading Weights...";
+                    } else {
+                        modelPill.className = "status-pill error";
+                        document.getElementById("modelStatusText").textContent = "Inference Unavailable";
+                    }
+
                     updateDeveloperDrawer(currentModelId);
+                } else {
+                    setApiDisconnected();
                 }
             } catch (err) {
-                console.warn("Health check error:", err);
+                setApiDisconnected();
             }
+        }
+
+        function setApiDisconnected() {
+            const apiPill = document.getElementById("apiStatusPill");
+            apiPill.className = "status-pill error";
+            document.getElementById("apiStatusText").textContent = "Disconnected";
+
+            const modelPill = document.getElementById("modelStatusPill");
+            modelPill.className = "status-pill error";
+            document.getElementById("modelStatusText").textContent = "Offline";
         }
 
         function getAuthHeaders(extra = {}) {
@@ -612,7 +823,7 @@ def get_web_interface_html() -> str:
             const authBadge = document.getElementById("authStatusBadge");
             if (authBadge) {
                 authBadge.textContent = currentKey ? "Active (Bearer Token)" : "Direct / Header Optional";
-                authBadge.style.color = currentKey ? "#58a6ff" : "#3fb950";
+                authBadge.style.color = currentKey ? "var(--accent-blue)" : "var(--accent-green)";
             }
 
             document.getElementById("drawerModel").textContent = modelId;
@@ -635,13 +846,18 @@ response = client.chat.completions.create(
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="")`;
 
-            const authHeaderLine = currentKey ? `  -H "Authorization: Bearer ${currentKey}" \\\n` : "";
-            const curlSnippet = `curl -X POST ${host}/v1/chat/completions \\
-${authHeaderLine}  -H "Content-Type: application/json" \\
+            const authHeaderLine = currentKey ? `  -H "Authorization: Bearer ${currentKey}" \\\\n` : "";
+            const curlSnippet = `curl -X POST ${host}/v1/chat/completions \\\\
+${authHeaderLine}  -H "Content-Type: application/json" \\\\
   -d '{"model": "${modelId}", "messages": [{"role": "user", "content": "Hello!"}]}'`;
 
             document.getElementById("pythonCodeSnippet").textContent = pySnippet;
             document.getElementById("curlCodeSnippet").textContent = curlSnippet;
+        }
+
+        function copySnippet(id) {
+            const text = document.getElementById(id).textContent;
+            navigator.clipboard.writeText(text);
         }
 
         // Conversations Navigation
@@ -674,8 +890,11 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
                 const item = document.createElement("div");
                 item.className = "convo-item" + (c.conversation_id === activeConversationId ? " active" : "");
                 item.innerHTML = `
-                    <span style="overflow:hidden; text-overflow:ellipsis;">💬 ${escapeHtml(c.title)}</span>
-                    <button class="convo-delete-btn" onclick="deleteConversation(event, '${c.conversation_id}')">🗑</button>
+                    <div class="convo-title">
+                        <span>💬</span>
+                        <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.title)}</span>
+                    </div>
+                    <button class="convo-delete-btn" title="Delete conversation" onclick="deleteConversation(event, '${c.conversation_id}')">✕</button>
                 `;
                 item.onclick = (e) => {
                     if (!e.target.classList.contains("convo-delete-btn")) {
@@ -797,7 +1016,7 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
         function setupDragAndDrop() {
             const dropZone = document.getElementById("composerBox");
             ["dragenter", "dragover"].forEach(evt => {
-                dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--accent-blue)"; });
+                dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--accent-red)"; });
             });
             ["dragleave", "drop"].forEach(evt => {
                 dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.style.borderColor = "var(--border-color)"; });
@@ -841,8 +1060,9 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
 
             // Hide empty state
             document.getElementById("emptyState").style.display = "none";
+            lastUserMessage = rawText;
 
-            // Compose user message
+            // Compose user prompt
             let promptContent = rawText;
             let attachmentBadges = "";
             if (activeAttachments.length > 0) {
@@ -857,15 +1077,14 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
             // Append User Bubble
             appendMessageBubble("user", rawText || "Attached document(s)", attachmentBadges);
             inputEl.value = "";
-            inputEl.style.height = "40px";
-            const currentAttachments = [...activeAttachments];
+            inputEl.style.height = "38px";
             activeAttachments = [];
             renderAttachmentChips();
 
             // Create Conversation if None Exists
             if (!activeConversationId) {
                 try {
-                    const titleText = rawText ? rawText.slice(0, 30) : (currentAttachments[0]?.filename || "Chat");
+                    const titleText = rawText ? rawText.slice(0, 30) : "Chat";
                     const convoRes = await fetch("/v1/conversations", {
                         method: "POST",
                         headers: getAuthHeaders({ "Content-Type": "application/json" }),
@@ -905,8 +1124,12 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
                         promptForApiKey();
                         return;
                     }
+                    if (res.status === 503) {
+                        assistantBubble.innerHTML = `<span style="color:var(--accent-amber)">Model is currently loading or initializing. Please retry in a few moments.</span>`;
+                        return;
+                    }
                     const err = await res.json().catch(() => ({}));
-                    assistantBubble.innerHTML = `<span style="color:var(--accent-red)">Error: ${err.detail || "Model inference failed"}</span>`;
+                    assistantBubble.innerHTML = `<span style="color:var(--accent-red)">Inference Error: ${err.detail || "Model execution failed"}</span>`;
                     return;
                 }
 
@@ -923,22 +1146,25 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
                     buffer = lines.pop();
 
                     for (const line of lines) {
-                        if (line.startsWith("data: ")) {
-                            const chunk = line.slice(6).trim();
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith("data: ")) {
+                            const chunk = trimmed.slice(6).trim();
                             if (chunk === "[DONE]") break;
                             try {
                                 const parsed = JSON.parse(chunk);
-                                const token = parsed.choices?.[0]?.delta?.content || "";
-                                accumulatedTokens += token;
-                                assistantBubble.innerHTML = renderMarkdown(accumulatedTokens);
-                                scrollToBottom();
+                                const delta = parsed.choices?.[0]?.delta;
+                                if (delta && delta.content) {
+                                    accumulatedTokens += delta.content;
+                                    assistantBubble.innerHTML = renderMarkdown(accumulatedTokens);
+                                    scrollToBottom();
+                                }
                             } catch(e) {}
                         }
                     }
                 }
             } catch (err) {
                 if (err.name === "AbortError") {
-                    assistantBubble.innerHTML += `<div style="font-size:11px; color:var(--text-secondary); margin-top:6px;">[Generation stopped by user]</div>`;
+                    assistantBubble.innerHTML += `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">[Generation stopped by user]</div>`;
                 } else {
                     assistantBubble.innerHTML = `<span style="color:var(--accent-red)">Connection error: ${err.message}</span>`;
                 }
@@ -953,7 +1179,6 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
         function setStreamingState(streaming) {
             isStreaming = streaming;
             const btn = document.getElementById("sendBtn");
-            const input = document.getElementById("messageInput");
             if (streaming) {
                 btn.textContent = "■";
                 btn.className = "send-btn stop-mode";
@@ -991,20 +1216,29 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
 
         function addMessageActions(contentDiv) {
             const actions = document.createElement("div");
-            actions.style.marginTop = "10px";
-            actions.style.display = "flex";
-            actions.style.gap = "8px";
+            actions.className = "assistant-actions";
 
             const copyBtn = document.createElement("button");
-            copyBtn.className = "copy-code-btn";
-            copyBtn.style.position = "static";
-            copyBtn.textContent = "📋 Copy Response";
+            copyBtn.className = "msg-action-btn";
+            copyBtn.innerHTML = "📋 Copy";
             copyBtn.onclick = () => {
                 navigator.clipboard.writeText(contentDiv.innerText);
-                copyBtn.textContent = "✓ Copied!";
-                setTimeout(() => copyBtn.textContent = "📋 Copy Response", 2000);
+                copyBtn.innerHTML = "✓ Copied";
+                setTimeout(() => copyBtn.innerHTML = "📋 Copy", 2000);
             };
+
+            const regenBtn = document.createElement("button");
+            regenBtn.className = "msg-action-btn";
+            regenBtn.innerHTML = "🔄 Regenerate";
+            regenBtn.onclick = () => {
+                if (lastUserMessage) {
+                    document.getElementById("messageInput").value = lastUserMessage;
+                    handleSendAction();
+                }
+            };
+
             actions.appendChild(copyBtn);
+            actions.appendChild(regenBtn);
             contentDiv.appendChild(actions);
         }
 
@@ -1024,7 +1258,8 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
 
             // Fenced code blocks ```lang ... ```
             html = html.replace(/```(\\w*)\\n([\\s\\S]*?)```/g, (match, lang, code) => {
-                return `<pre><button class="copy-code-btn" onclick="copyCode(this)">Copy</button><code>${code}</code></pre>`;
+                const language = lang || "code";
+                return `<div class="code-block-wrapper"><div class="code-header"><span>${language}</span><button class="copy-code-btn" onclick="copyCode(this)">Copy</button></div><pre><code>${code}</code></pre></div>`;
             });
 
             // Inline code `...`
@@ -1034,6 +1269,9 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
             html = html.replace(/\\*\\*([^\\*]+)\\*\\*/g, "<b>$1</b>");
             html = html.replace(/\\*([^\\*]+)\\*/g, "<i>$1</i>");
 
+            // Blockquotes
+            html = html.replace(/^>\\s*(.+)$/gm, "<blockquote>$1</blockquote>");
+
             // Paragraphs / line breaks
             html = html.replace(/\\n\\n/g, "</p><p>");
             html = html.replace(/\\n/g, "<br>");
@@ -1041,10 +1279,12 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
         }
 
         function copyCode(btn) {
-            const code = btn.nextElementSibling.innerText;
-            navigator.clipboard.writeText(code);
-            btn.textContent = "Copied!";
-            setTimeout(() => btn.textContent = "Copy", 2000);
+            const pre = btn.closest(".code-block-wrapper").querySelector("pre code");
+            if (pre) {
+                navigator.clipboard.writeText(pre.innerText);
+                btn.textContent = "Copied!";
+                setTimeout(() => btn.textContent = "Copy", 2000);
+            }
         }
 
         function scrollToBottom() {
@@ -1111,4 +1351,3 @@ ${authHeaderLine}  -H "Content-Type: application/json" \\
 </body>
 </html>
 """
-

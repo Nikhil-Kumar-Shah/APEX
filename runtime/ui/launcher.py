@@ -1068,6 +1068,57 @@ class APEXLauncher:
         </div>
         """
 
+    def _render_preset_details_html(self, preset: Optional[ModelPreset]) -> str:
+        """Renders the detailed metadata and hardware advice card for the selected preset."""
+        if not preset:
+            return ""
+
+        hw = self.hardware_info
+        is_cuda = bool(hw.get("cuda_available", False))
+        total_vram = hw.get("vram_total_gb") or 0.0
+        gpu_name = hw.get("gpu_name") or "CPU"
+
+        if is_cuda:
+            if preset.estimated_vram_gb <= total_vram * 0.9:
+                hw_advice = f"✓ Verified fit for {gpu_name} ({total_vram:.1f} GB VRAM available)."
+                hw_color = "#15803d"
+                card_bg = "#f0fdf4"
+                card_border = "#bbf7d0"
+            else:
+                hw_advice = f"⚠️ Warning: Requires ~{preset.estimated_vram_gb:.1f} GB VRAM, but device has {total_vram:.1f} GB. Potential OOM risk."
+                hw_color = "#b45309"
+                card_bg = "#fffbeb"
+                card_border = "#fde68a"
+        else:
+            if preset.estimated_vram_gb <= 2.0:
+                hw_advice = "ℹ️ Ultra-lightweight model. Verified for CPU testing (inference speed is modest)."
+                hw_color = "#0369a1"
+                card_bg = "#f0f9ff"
+                card_border = "#bae6fd"
+            else:
+                hw_advice = f"⚠️ Warning: Running a {preset.parameter_count} model on CPU without a GPU accelerator will be slow."
+                hw_color = "#b45309"
+                card_bg = "#fffbeb"
+                card_border = "#fde68a"
+
+        auth_badge = "<span style='color:#dc2626; font-weight:600;'>Yes (Hugging Face token required)</span>" if preset.requires_auth else "<span style='color:#16a34a; font-weight:600;'>No (Public weights)</span>"
+
+        return f"""
+        <div style="background:{card_bg}; border:1px solid {card_border}; border-radius:6px; padding:12px 14px; margin-top:8px; font-size:12.5px; color:#334155; line-height:1.5;">
+            <div style="font-weight:700; color:#0f172a; font-size:13.5px; margin-bottom:4px;">{html.escape(preset.display_name)}</div>
+            <div style="color:#64748b; margin-bottom:8px;">{html.escape(preset.description)}</div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12px; margin-bottom:6px;">
+                <span><b>Parameters:</b> {html.escape(preset.parameter_count)}</span>
+                <span><b>Est. VRAM:</b> ~{preset.estimated_vram_gb:.1f} GB</span>
+                <span><b>Recommended Precision:</b> {html.escape(preset.recommended_precision)}</span>
+                <span><b>Gated Access:</b> {auth_badge}</span>
+            </div>
+            <div style="font-size:11.5px; color:{hw_color}; font-weight:600;">
+                {hw_advice}
+            </div>
+        </div>
+        """
+
     def _render_checklist_html(self) -> str:
         """Renders the 10-step progress checklist widget with real-time status and stall alerts."""
         items = []
@@ -1370,52 +1421,146 @@ print(response.choices[0].message.content)"""
         # ── 1. Header & Hardware Detection
         hw_html = widgets.HTML(value=self._render_hardware_html())
 
-        # ── 2. Model Configuration
-        preset_items = [(f"{p.display_name} ({p.repo_id})", p.repo_id) for p in CURATED_PRESETS]
-        preset_items.append(("Custom Hugging Face Model or URL...", "custom"))
-
+        # ── 2. Model Selection: Curated Presets vs Custom Hugging Face Model
         curr_repo = self.config.model_id
         preset_match = get_preset(curr_repo)
-        default_preset_val = curr_repo if preset_match else "custom"
+
+        model_source_radio = widgets.RadioButtons(
+            options=["Curated Model Preset", "Custom Hugging Face Model or URL"],
+            value="Curated Model Preset" if preset_match else "Custom Hugging Face Model or URL",
+            layout=widgets.Layout(margin="4px 0 10px 0"),
+        )
+
+        preset_items = [(f"{p.display_name} ({p.repo_id})", p.repo_id) for p in CURATED_PRESETS]
+        initial_preset_val = preset_match.repo_id if preset_match else CURATED_PRESETS[0].repo_id
 
         model_preset_dd = widgets.Dropdown(
             options=preset_items,
-            value=default_preset_val,
-            description="Model Preset:",
-            layout=widgets.Layout(width="98%"),
+            value=initial_preset_val,
+            description="Preset:",
+            layout=widgets.Layout(width="100%"),
+        )
+        initial_preset_obj = get_preset(initial_preset_val) or CURATED_PRESETS[0]
+        preset_details_html = widgets.HTML(value=self._render_preset_details_html(initial_preset_obj))
+
+        preset_box = widgets.VBox(
+            [
+                model_preset_dd,
+                preset_details_html,
+            ],
+            layout=widgets.Layout(
+                display="block" if model_source_radio.value == "Curated Model Preset" else "none",
+                margin="0 0 10px 0",
+            ),
         )
 
         model_id_text = widgets.Text(
             value=curr_repo,
-            placeholder="e.g. Qwen/Qwen2.5-0.5B or https://huggingface.co/...",
+            placeholder="e.g. Qwen/Qwen2.5-0.5B-Instruct or https://huggingface.co/...",
             description="Model ID/URL:",
-            layout=widgets.Layout(width="98%"),
+            layout=widgets.Layout(width="100%"),
         )
 
         model_display_name_text = widgets.Text(
             value="",
-            placeholder="Optional friendly name (e.g. My Assistant)",
+            placeholder="Optional friendly name (e.g. My Custom Assistant)",
             description="Display Name:",
-            layout=widgets.Layout(width="98%"),
+            layout=widgets.Layout(width="100%"),
         )
+
+        custom_validation_html = widgets.HTML(value="")
+
+        custom_box = widgets.VBox(
+            [
+                model_id_text,
+                model_display_name_text,
+                custom_validation_html,
+            ],
+            layout=widgets.Layout(
+                display="block" if model_source_radio.value == "Custom Hugging Face Model or URL" else "none",
+                margin="0 0 10px 0",
+            ),
+        )
+
+        # ── 3. Hugging Face Access Token with Show/Hide & Clear
+        hf_token_val = self.config.hf_token or ""
+        hf_token_pwd = widgets.Password(
+            value=hf_token_val,
+            placeholder="hf_... (required for gated models like Llama 3 / Gemma 2)",
+            layout=widgets.Layout(flex="1 1 auto"),
+        )
+        hf_token_txt = widgets.Text(
+            value=hf_token_val,
+            placeholder="hf_... (required for gated models like Llama 3 / Gemma 2)",
+            layout=widgets.Layout(flex="1 1 auto", display="none"),
+        )
+        show_token_btn = widgets.Button(
+            description="Show",
+            icon="eye",
+            layout=widgets.Layout(width="80px"),
+        )
+        clear_token_btn = widgets.Button(
+            description="Clear",
+            icon="times",
+            layout=widgets.Layout(width="75px"),
+        )
+        token_input_row = widgets.HBox(
+            [hf_token_pwd, hf_token_txt, show_token_btn, clear_token_btn],
+            layout=widgets.Layout(width="100%", gap="6px", align_items="center"),
+        )
+        token_help_html = widgets.HTML(
+            value=(
+                "<div style='font-size:11.5px; color:#64748b; margin-top:3px;'>"
+                "Required for gated models (e.g. Llama 3, Gemma 2), private repositories, or higher Hugging Face API rate limits. "
+                "Leave empty for open public models."
+                "</div>"
+            )
+        )
+        token_section_box = widgets.VBox(
+            [
+                widgets.HTML("<div style='font-weight:600; font-size:12.5px; color:#334155; margin-bottom:4px;'>Hugging Face Access Token</div>"),
+                token_input_row,
+                token_help_html,
+            ],
+            layout=widgets.Layout(margin="6px 0 14px 0"),
+        )
+
+        # ── 4. Precision Control & Trade-off Guide
+        precision_options = [
+            ("Auto (Recommended based on hardware)", "auto"),
+            ("16-bit (float16 / bfloat16 — standard GPU)", "float16"),
+            ("8-bit (bitsandbytes INT8 — lower VRAM)", "8bit"),
+            ("4-bit (bitsandbytes NF4 — minimal VRAM)", "4bit"),
+            ("32-bit (float32 — CPU execution)", "float32"),
+        ]
+        curr_prec = self.config.precision or "auto"
+        valid_prec_values = [p[1] for p in precision_options]
+        default_prec_val = curr_prec if curr_prec in valid_prec_values else "auto"
 
         precision_dd = widgets.Dropdown(
-            options=["Auto", "float16", "bfloat16", "float32"],
-            value=self.config.precision if self.config.precision in ("float16", "bfloat16", "float32") else "Auto",
+            options=precision_options,
+            value=default_prec_val,
             description="Precision:",
-            layout=widgets.Layout(width="48%"),
+            layout=widgets.Layout(width="100%"),
+        )
+        precision_help_html = widgets.HTML(
+            value=(
+                "<div style='font-size:11.5px; color:#64748b; margin-top:3px; line-height:1.45;'>"
+                "• <b>Auto</b> selects 16-bit float16 on CUDA GPUs and 32-bit on CPU.<br>"
+                "• <b>4-bit / 8-bit</b> drastically reduce GPU VRAM consumption for larger models with minimal fidelity loss.<br>"
+                "• <b>16-bit / 32-bit</b> preserve full unquantized weights."
+                "</div>"
+            )
+        )
+        precision_section_box = widgets.VBox(
+            [
+                precision_dd,
+                precision_help_html,
+            ],
+            layout=widgets.Layout(margin="0 0 14px 0"),
         )
 
-        hf_token_text = widgets.Password(
-            value=self.config.hf_token or "",
-            placeholder="hf_... (optional for gated models)",
-            description="HF Token:",
-            layout=widgets.Layout(width="48%"),
-        )
-
-        model_feedback_html = widgets.HTML(value="")
-
-        # ── 3. Advanced Settings (Collapsed)
+        # ── 5. Advanced Settings (Collapsed Accordion)
         port_text = widgets.Text(
             value=str(self.config.port or 8000),
             description="API Port:",
@@ -1437,7 +1582,7 @@ print(response.choices[0].message.content)"""
 
         transport_dd = widgets.Dropdown(
             options=[
-                ("Cloudflare Quick Tunnel (Public Access)", "cloudflare"),
+                ("Cloudflare Quick Tunnel (Public Web & API Access)", "cloudflare"),
                 ("Local Port Only (No Tunnel)", "local"),
             ],
             value=self.config.transport or "cloudflare",
@@ -1472,10 +1617,10 @@ print(response.choices[0].message.content)"""
             layout=widgets.Layout(padding="8px 0"),
         )
         advanced_accordion = widgets.Accordion(children=[advanced_box])
-        advanced_accordion.set_title(0, "Advanced Settings")
+        advanced_accordion.set_title(0, "Advanced Settings (Port, Security, Transport, Sampling)")
         advanced_accordion.selected_index = None  # Collapsed by default
 
-        # ── 4. Observability Mode & Action Buttons
+        # ── 6. Observability Mode & Action Buttons
         mode_dd = widgets.Dropdown(
             options=[
                 ("Development Mode (Live Console Visible)", "development"),
@@ -1498,15 +1643,15 @@ print(response.choices[0].message.content)"""
             description="Validate Configuration",
             button_style="",
             icon="check",
-            layout=widgets.Layout(width="180px", height="38px"),
+            layout=widgets.Layout(width="190px", height="38px"),
         )
 
-        # ── 5. Checklist & Output Widgets
+        # ── 7. Checklist & Output Widgets
         checklist_html = widgets.HTML(value="")
         conn_panel_html = widgets.HTML(value="")
         alert_html = widgets.HTML(value="")
 
-        # ── 6. Live Developer Console
+        # ── 8. Live Developer Console
         level_dd = widgets.Dropdown(
             options=["ALL", "DEBUG", "INFO", "WARNING", "ERROR"],
             value=self.filter_level,
@@ -1559,14 +1704,88 @@ print(response.choices[0].message.content)"""
         dev_console_accordion.set_title(0, f"Live Developer Console & Telemetry (Build: {APEX_BUILD_ID})")
         dev_console_accordion.selected_index = 0 if self.console_mode == "development" else None
 
-        # ── 7. Collapsed Connect Code Panel
+        # ── 9. Collapsed Connect Code Panel
         connect_code_html = widgets.HTML(value="")
         connect_accordion = widgets.Accordion(children=[connect_code_html])
         connect_accordion.set_title(0, "Connect your application (Python SDK)")
         connect_accordion.selected_index = None
         connect_accordion.layout.display = "none"
 
-        # ── Callbacks
+        # ── Reactive Observers & Wire-ups
+        def _get_current_target_model() -> str:
+            if model_source_radio.value == "Curated Model Preset":
+                return model_preset_dd.value
+            return model_id_text.value.strip()
+
+        def _update_custom_validation():
+            raw = model_id_text.value.strip()
+            if not raw:
+                custom_validation_html.value = ""
+                return
+            norm, ok, err = normalize_hf_model_id(raw)
+            if not ok:
+                custom_validation_html.value = f"<div style='color:#dc2626; font-size:12px; margin-top:4px;'>❌ {err}</div>"
+            else:
+                total_vram = self.hardware_info.get("vram_total_gb") or 0.0
+                is_cuda = bool(self.hardware_info.get("cuda_available", False))
+                ram_avail = self.hardware_info.get("ram_available_gb")
+                prec = "float16" if precision_dd.value in ("auto", "Auto") else precision_dd.value
+                compat_status, compat_msg = check_hardware_compatibility(norm, total_vram, is_cuda, prec, ram_available_gb=ram_avail)
+                color = "#15803d" if compat_status in ("compatible", "tight") else ("#b45309" if compat_status in ("warning", "cpu") else "#dc2626")
+                custom_validation_html.value = (
+                    f"<div style='font-size:12px; margin-top:4px; color:{color};'>"
+                    f"✓ Resolved Model ID: <b>{norm}</b><br>{compat_msg}"
+                    f"</div>"
+                )
+
+        def _on_source_change(change):
+            if change["new"] == "Curated Model Preset":
+                preset_box.layout.display = "block"
+                custom_box.layout.display = "none"
+            else:
+                preset_box.layout.display = "none"
+                custom_box.layout.display = "block"
+                _update_custom_validation()
+
+        def _on_preset_change(change):
+            p = get_preset(change["new"])
+            preset_details_html.value = self._render_preset_details_html(p)
+
+        def _on_custom_text_change(change):
+            _update_custom_validation()
+
+        def _sync_token(val: str):
+            hf_token_pwd.value = val
+            hf_token_txt.value = val
+            self.config.hf_token = val or None
+
+        def _on_token_pwd_change(change):
+            if hf_token_txt.value != change["new"]:
+                hf_token_txt.value = change["new"]
+                self.config.hf_token = change["new"].strip() or None
+
+        def _on_token_txt_change(change):
+            if hf_token_pwd.value != change["new"]:
+                hf_token_pwd.value = change["new"]
+                self.config.hf_token = change["new"].strip() or None
+
+        def _on_show_token_click(_):
+            if hf_token_pwd.layout.display != "none":
+                hf_token_txt.value = hf_token_pwd.value
+                hf_token_pwd.layout.display = "none"
+                hf_token_txt.layout.display = "flex"
+                show_token_btn.description = "Hide"
+                show_token_btn.icon = "eye-slash"
+            else:
+                hf_token_pwd.value = hf_token_txt.value
+                hf_token_txt.layout.display = "none"
+                hf_token_pwd.layout.display = "flex"
+                show_token_btn.description = "Show"
+                show_token_btn.icon = "eye"
+
+        def _on_clear_token_click(_):
+            _sync_token("")
+
         def _on_log_record(entry: LogEntry):
             self.last_progress_time = time.time()
             console_html.value = self._render_console_logs_html()
@@ -1603,30 +1822,17 @@ print(response.choices[0].message.content)"""
             self.console_mode = change["new"]
             dev_console_accordion.selected_index = 0 if self.console_mode == "development" else None
 
-        def _on_preset_change(change):
-            val = change["new"]
-            if val == "custom":
-                model_id_text.disabled = False
-            else:
-                model_id_text.value = val
-                model_feedback_html.value = ""
-
-        def _on_model_text_change(change):
-            raw = change["new"]
-            norm, ok, err = normalize_hf_model_id(raw)
-            if not ok and raw.strip():
-                model_feedback_html.value = f"<div style='color:#dc2626; font-size:12px; margin-top:2px;'>{err}</div>"
-            else:
-                model_feedback_html.value = ""
-
         def _on_validate_click(_):
-            raw_id = model_id_text.value.strip()
-            prec = "float16" if precision_dd.value == "Auto" else precision_dd.value
+            raw_id = _get_current_target_model()
+            prec_val = precision_dd.value
+            prec = "float16" if prec_val in ("auto", "Auto") else prec_val
             valid, norm_id, msgs = self.validate_inputs(raw_id, prec, port_text.value.strip())
+            active_token = hf_token_pwd.value.strip() or hf_token_txt.value.strip() or None
+
             if valid:
                 self.config.model_id = norm_id
                 self.config.precision = prec
-                self.config.hf_token = hf_token_text.value.strip() or None
+                self.config.hf_token = active_token
                 self.config.port = int(port_text.value.strip()) if port_text.value.strip().isdigit() else 8000
                 self.config.enable_auth = auth_cb.value
                 self.config.api_key = api_key_text.value.strip() or None
@@ -1655,7 +1861,8 @@ print(response.choices[0].message.content)"""
                 return
 
             _on_validate_click(None)
-            norm_id, is_val, _ = normalize_hf_model_id(model_id_text.value.strip())
+            raw_id = _get_current_target_model()
+            norm_id, is_val, _ = normalize_hf_model_id(raw_id)
             if not is_val:
                 return
 
@@ -1724,17 +1931,26 @@ print(completion.choices[0].message.content)"""
         clear_logs_btn.on_click(_on_clear_click)
         export_logs_btn.on_click(_on_export_click)
 
+        model_source_radio.observe(_on_source_change, names="value")
         model_preset_dd.observe(_on_preset_change, names="value")
-        model_id_text.observe(_on_model_text_change, names="value")
+        model_id_text.observe(_on_custom_text_change, names="value")
+        hf_token_pwd.observe(_on_token_pwd_change, names="value")
+        hf_token_txt.observe(_on_token_txt_change, names="value")
+        show_token_btn.on_click(_on_show_token_click)
+        clear_token_btn.on_click(_on_clear_token_click)
+
         validate_btn.on_click(_on_validate_click)
         start_btn.on_click(_on_start_click)
 
         # Store widgets for programmatic access
         self._widgets = {
             "mode_selector": mode_dd,
+            "model_source_radio": model_source_radio,
             "model_preset": model_preset_dd,
             "model_id": model_id_text,
+            "model_display_name": model_display_name_text,
             "precision": precision_dd,
+            "hf_token": hf_token_pwd,
             "start_btn": start_btn,
             "validate_btn": validate_btn,
             "checklist_html": checklist_html,
@@ -1751,12 +1967,12 @@ print(completion.choices[0].message.content)"""
                 hw_html,
                 widgets.VBox(
                     [
-                        widgets.HTML("<div class='apex-card-title' style='margin-top:4px;'>Model Configuration</div>"),
-                        model_preset_dd,
-                        model_id_text,
-                        model_display_name_text,
-                        widgets.HBox([precision_dd, hf_token_text]),
-                        model_feedback_html,
+                        widgets.HTML("<div class='apex-card-title' style='margin-top:6px;'>Model Selection</div>"),
+                        model_source_radio,
+                        preset_box,
+                        custom_box,
+                        token_section_box,
+                        precision_section_box,
                     ],
                     layout=widgets.Layout(margin="0 0 12px 0"),
                 ),

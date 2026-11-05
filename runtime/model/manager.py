@@ -188,6 +188,8 @@ class ModelManager:
         }
         if "device" in kwargs and kwargs["device"]:
             engine_config["device"] = kwargs["device"]
+        if "hf_token" in kwargs and kwargs["hf_token"]:
+            engine_config["hf_token"] = kwargs["hf_token"]
 
         try:
             engine = get_engine(selected_engine, engine_config)

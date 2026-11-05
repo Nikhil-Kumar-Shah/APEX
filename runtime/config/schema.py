@@ -28,7 +28,7 @@ DEFAULT_CONFIG_TEMPLATE: Dict[str, Any] = {
         "default_backend": "transformers",
     },
     "model": {
-        "model_id": "Qwen/Qwen2.5-0.5B",
+        "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
         "precision": "float16",
         "hf_token": None,
         "revision": None,
@@ -60,7 +60,7 @@ class ApexConfig:
     config_version: str = DEFAULT_CONFIG_VERSION
 
     # Model settings
-    model_id: str = "Qwen/Qwen2.5-0.5B"
+    model_id: str = "Qwen/Qwen2.5-0.5B-Instruct"
     precision: str = "float16"
     hf_token: Optional[str] = None
     revision: Optional[str] = None

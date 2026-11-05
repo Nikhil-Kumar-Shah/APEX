@@ -62,8 +62,12 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         elif precision == "float32":
             torch_dtype = torch.float32
 
+        hf_token = params.get("hf_token")
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+            tok_kwargs = {"trust_remote_code": True}
+            if hf_token:
+                tok_kwargs["token"] = hf_token
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path, **tok_kwargs)
 
             # Defensive loading against OOM
             load_kwargs = {
@@ -71,6 +75,28 @@ class TransformersInferenceEngine(BaseInferenceEngine):
                 "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
             }
+            if hf_token:
+                load_kwargs["token"] = hf_token
+
+            # Support 4-bit / 8-bit quantization if requested and available
+            if precision in ("4bit", "int4", "4-bit"):
+                try:
+                    from transformers import BitsAndBytesConfig
+                    load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch_dtype,
+                    )
+                except Exception as bnb_err:
+                    logger.warning(f"BitsAndBytes 4-bit unavailable ({bnb_err}); falling back to standard precision.")
+            elif precision in ("8bit", "int8", "8-bit"):
+                try:
+                    from transformers import BitsAndBytesConfig
+                    load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                    )
+                except Exception as bnb_err:
+                    logger.warning(f"BitsAndBytes 8-bit unavailable ({bnb_err}); falling back to standard precision.")
+
             if self.device == "cuda":
                 load_kwargs["device_map"] = "auto"
 
@@ -152,33 +178,50 @@ class TransformersInferenceEngine(BaseInferenceEngine):
 
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
 
-        eos_ids = []
+        from transformers import StoppingCriteria, StoppingCriteriaList
+
+        class StopOnTokensCriteria(StoppingCriteria):
+            def __init__(self, stop_ids):
+                super().__init__()
+                self.stop_ids = set(stop_ids)
+
+            def __call__(self, input_ids: Any, scores: Any, **kwargs) -> bool:
+                for seq in input_ids:
+                    if len(seq) > 0 and seq[-1].item() in self.stop_ids:
+                        return True
+                return False
+
+        eos_ids = set()
         if hasattr(self.tokenizer, "eos_token_id") and self.tokenizer.eos_token_id is not None:
             if isinstance(self.tokenizer.eos_token_id, list):
-                eos_ids.extend(self.tokenizer.eos_token_id)
-            else:
-                eos_ids.append(self.tokenizer.eos_token_id)
+                eos_ids.update([t for t in self.tokenizer.eos_token_id if isinstance(t, int)])
+            elif isinstance(self.tokenizer.eos_token_id, int):
+                eos_ids.add(self.tokenizer.eos_token_id)
 
-        for stop_sym in ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]:
+        for stop_sym in ["<|im_end|>", "<|endoftext|>", "<|im_start|>", "<|eot_id|>", "<end_of_turn>", "</s>", "<eos>"]:
             try:
                 t_id = self.tokenizer.convert_tokens_to_ids(stop_sym)
-                if t_id is not None and isinstance(t_id, int) and t_id not in eos_ids and t_id > 0:
-                    eos_ids.append(t_id)
+                if t_id is not None and isinstance(t_id, int) and t_id > 0:
+                    eos_ids.add(t_id)
             except Exception:
                 pass
 
+        stopping_criteria = StoppingCriteriaList([StopOnTokensCriteria(list(eos_ids))]) if eos_ids else None
+
         pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
         if pad_token_id is None and eos_ids:
-            pad_token_id = eos_ids[0]
+            pad_token_id = next(iter(eos_ids))
 
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,
             max_new_tokens=max_new_tokens,
             pad_token_id=pad_token_id,
-            eos_token_id=eos_ids if eos_ids else None,
+            eos_token_id=list(eos_ids) if eos_ids else None,
             repetition_penalty=1.1,
         )
+        if stopping_criteria:
+            generation_kwargs["stopping_criteria"] = stopping_criteria
 
         if temperature > 0.0:
             generation_kwargs["do_sample"] = True
@@ -200,22 +243,54 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         thread = Thread(target=_run_generation, daemon=True)
         thread.start()
 
-        stop_words = ["<|im_end|>", "<|endoftext|>", "<|im_start|>"]
+        stop_words = [
+            "<|im_end|>", "<|endoftext|>", "<|im_start|>",
+            "<|eot_id|>", "<end_of_turn>", "</s>", "<eos>",
+            "\n<|im_start|>", "\n<|im_end|>",
+            "\nuser\n", "\nUser:\n", "\nuser:\n",
+            "\nassistant\n", "\nAssistant:\n",
+        ]
+        max_stop_len = max(len(sw) for sw in stop_words)
+
         tokens_yielded = 0
+        buffer = ""
+        should_stop = False
+
         try:
             for new_text in streamer:
-                should_stop = False
-                clean_text = new_text
+                buffer += new_text
+
+                # Check if buffer contains any complete stop word
                 for sw in stop_words:
-                    if sw in clean_text:
-                        clean_text = clean_text.split(sw)[0]
+                    if sw in buffer:
+                        buffer = buffer.split(sw)[0]
                         should_stop = True
                         break
-                if clean_text:
-                    tokens_yielded += 1
-                    yield clean_text
+
                 if should_stop:
+                    if buffer:
+                        tokens_yielded += 1
+                        yield buffer
+                    buffer = ""
                     break
+
+                # If buffer is long enough, yield the safe prefix and retain potential partial matches
+                if len(buffer) > max_stop_len:
+                    safe_len = len(buffer) - max_stop_len
+                    chunk_to_yield = buffer[:safe_len]
+                    buffer = buffer[safe_len:]
+                    if chunk_to_yield:
+                        tokens_yielded += 1
+                        yield chunk_to_yield
+
+            # Flush any remaining clean buffer text at the end of generation
+            if buffer and not should_stop:
+                for sw in stop_words:
+                    if sw in buffer:
+                        buffer = buffer.split(sw)[0]
+                if buffer:
+                    tokens_yielded += 1
+                    yield buffer
         finally:
             thread.join()
             if tokens_yielded == 0 and generation_errors:

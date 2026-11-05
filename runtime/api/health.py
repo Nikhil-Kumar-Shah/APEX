@@ -20,12 +20,19 @@ async def health_check(req: Request = None):
     elif state and getattr(state, "model_loaded", None):
         active_model = state.model_loaded
 
-    # Check if active engine is genuinely loaded
+    # Check if active engine is genuinely loaded and ready for inference
     is_loaded = False
-    if mm and getattr(mm, "active_engine", None):
-        is_loaded = bool(getattr(mm.active_engine, "is_loaded", False))
-    elif active_model:
+    model_state_str = "unloaded"
+    if mm:
+        engine = getattr(mm, "active_engine", None)
+        if engine and getattr(engine, "is_loaded", False):
+            is_loaded = True
+            model_state_str = "loaded"
+        elif active_model:
+            model_state_str = "loading"
+    elif state and getattr(state, "model_loaded", None):
         is_loaded = True
+        model_state_str = "loaded"
 
     # Real GPU detection
     gpu_available = False
@@ -52,7 +59,7 @@ async def health_check(req: Request = None):
         "gpu_device": gpu_name,
         "vram_allocated_mb": round(vram_alloc_mb, 2),
         "memory": "ok",
-        "model": "loaded" if is_loaded else "unloaded",
+        "model": model_state_str,
         "model_loaded": active_model or "none",
         "is_model_ready": is_loaded,
         "queue": "active" if (state and state.api_running) else "idle",

@@ -29,21 +29,27 @@ class ConversationMemoryManager:
     def _get_file_path(self, conversation_id: str) -> Path:
         return self.conversations_dir / f"{conversation_id}.json"
 
-    def create_conversation(self, title: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def create_conversation(
+        self,
+        title: str = "New Conversation",
+        session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Creates and persists a new conversation thread.
 
         Args:
             title: Human friendly conversation name.
             session_id: Active connection session mapping.
+            conversation_id: Optional specific conversation ID.
 
         Returns:
             Dict[str, Any]: Newly initialized conversation dictionary.
         """
         import uuid
 
-        conversation_id = str(uuid.uuid4())
+        cid = conversation_id or str(uuid.uuid4())
         convo = {
-            "conversation_id": conversation_id,
+            "conversation_id": cid,
             "title": title,
             "session_id": session_id,
             "created_at": time.time(),
@@ -51,7 +57,7 @@ class ConversationMemoryManager:
             "summary": "",
             "messages": [],
         }
-        self.save_conversation(conversation_id, convo)
+        self.save_conversation(cid, convo)
         return convo
 
     def load_conversation(self, conversation_id: str) -> Dict[str, Any]:
@@ -90,7 +96,10 @@ class ConversationMemoryManager:
             role: Message sender role ('user', 'assistant').
             content: Message string content.
         """
-        convo = self.load_conversation(conversation_id)
+        try:
+            convo = self.load_conversation(conversation_id)
+        except Exception:
+            convo = self.create_conversation(title=f"Chat {conversation_id[:8]}", conversation_id=conversation_id)
         convo["messages"].append(
             {
                 "role": role,

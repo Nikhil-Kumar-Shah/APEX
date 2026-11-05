@@ -35,20 +35,20 @@ class ModelPreset:
 # Curated presets optimized for Google Colab GPU tiers (T4, V100, A100) and CPU
 CURATED_PRESETS: List[ModelPreset] = [
     ModelPreset(
-        repo_id="Qwen/Qwen2.5-0.5B",
-        display_name="Qwen 2.5 0.5B (Ultra-Lightweight)",
+        repo_id="Qwen/Qwen2.5-0.5B-Instruct",
+        display_name="Qwen 2.5 0.5B Instruct (Ultra-Lightweight)",
         family="qwen",
-        description="Ultra-compact 0.5B model (~1.2 GB VRAM). Optimal for fast prototyping, Colab T4, and CPU.",
+        description="Instruction-tuned 0.5B model (~1.2 GB VRAM). Optimal for fast prototyping, Colab T4, and CPU.",
         estimated_vram_gb=1.2,
         parameter_count="0.5B",
         recommended_precision="float16",
         requires_auth=False,
     ),
     ModelPreset(
-        repo_id="Qwen/Qwen2.5-1.5B",
-        display_name="Qwen 2.5 1.5B (Fast & Balanced)",
+        repo_id="Qwen/Qwen2.5-1.5B-Instruct",
+        display_name="Qwen 2.5 1.5B Instruct (Fast & Balanced)",
         family="qwen",
-        description="Balanced 1.5B model (~3.5 GB VRAM). Great balance of reasoning, speed, and low memory.",
+        description="Instruction-tuned 1.5B model (~3.5 GB VRAM). Great balance of reasoning, speed, and low memory.",
         estimated_vram_gb=3.5,
         parameter_count="1.5B",
         recommended_precision="float16",
@@ -75,10 +75,10 @@ CURATED_PRESETS: List[ModelPreset] = [
         requires_auth=False,
     ),
     ModelPreset(
-        repo_id="Qwen/Qwen2.5-7B",
-        display_name="Qwen 2.5 7B (High Quality)",
+        repo_id="Qwen/Qwen2.5-7B-Instruct",
+        display_name="Qwen 2.5 7B Instruct (High Quality)",
         family="qwen",
-        description="Powerful 7B model (~14.0 GB VRAM). Maximum quality for Colab T4 (15GB) or high-RAM GPUs.",
+        description="Instruction-tuned 7B model (~14.0 GB VRAM). Maximum quality for Colab T4 (15GB) or high-RAM GPUs.",
         estimated_vram_gb=14.0,
         parameter_count="7B",
         recommended_precision="float16",
@@ -175,10 +175,15 @@ def get_profile(family_name: str) -> ModelProfile:
 
 
 def get_preset(repo_id: str) -> Optional[ModelPreset]:
-    """Retrieves a curated preset by exact repository identifier."""
+    """Retrieves a curated preset by exact repository identifier or normalized match."""
+    if not repo_id:
+        return None
     repo_lower = repo_id.strip().lower()
     for preset in CURATED_PRESETS:
         if preset.repo_id.lower() == repo_lower:
+            return preset
+        # Also allow matching without -Instruct for backward compatibility
+        if preset.repo_id.lower().replace("-instruct", "") == repo_lower.replace("-instruct", ""):
             return preset
     return None
 

@@ -530,7 +530,7 @@ class RuntimeCoordinator:
 
         with self._model_lock:
             # 1. Resolve & normalize Model ID
-            raw_id = self.active_config.model_id or "Qwen/Qwen2.5-0.5B"
+            raw_id = self.active_config.model_id or "Qwen/Qwen2.5-0.5B-Instruct"
             self._set_model_state(ModelExecutionStatus.MODEL_RESOLVING)
             if on_progress:
                 on_progress(f"Resolving model identifier '{raw_id}'...", None)
