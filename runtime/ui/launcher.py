@@ -398,6 +398,81 @@ def get_launcher_css() -> str:
     """
 
 
+# ── Real-Time Terminal Handlers & Scoped Redirection ──────────────────────────
+
+class TerminalLoggingHandler(logging.Handler):
+    """Streams real-time Python logging records directly to the notebook terminal output."""
+
+    def __init__(self, launcher: "APEXLauncher"):
+        super().__init__()
+        self.launcher = launcher
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            msg = record.getMessage()
+            lvl = record.levelname
+            self.launcher.write_terminal(f"{lvl}: {msg}")
+            if record.exc_info:
+                import traceback
+                tb = "".join(traceback.format_exception(*record.exc_info))
+                self.launcher.write_terminal(tb)
+        except Exception:
+            pass
+
+
+class ScopedOutputRedirect:
+    """Scoped context manager redirecting stdout and stderr to the notebook terminal."""
+
+    def __init__(self, launcher: "APEXLauncher"):
+        self.launcher = launcher
+        self._orig_stdout = None
+        self._orig_stderr = None
+
+    def __enter__(self):
+        self._orig_stdout = sys.stdout
+        self._orig_stderr = sys.stderr
+
+        class OutputProxy:
+            def __init__(self, launcher: "APEXLauncher", original_stream, is_err: bool = False):
+                self.launcher = launcher
+                self.original_stream = original_stream
+                self.is_err = is_err
+
+            def write(self, s):
+                if s:
+                    # Append output to terminal widget
+                    self.launcher.write_terminal(s)
+                    # Forward to original stream
+                    try:
+                        self.original_stream.write(s)
+                        self.original_stream.flush()
+                    except Exception:
+                        pass
+
+            def flush(self):
+                try:
+                    self.original_stream.flush()
+                except Exception:
+                    pass
+
+            def isatty(self):
+                return getattr(self.original_stream, "isatty", lambda: False)()
+
+            def fileno(self):
+                return getattr(self.original_stream, "fileno", lambda: 1)()
+
+        # Wrap during launch/shutdown
+        sys.stdout = OutputProxy(self.launcher, self._orig_stdout, is_err=False)
+        sys.stderr = OutputProxy(self.launcher, self._orig_stderr, is_err=True)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._orig_stdout is not None:
+            sys.stdout = self._orig_stdout
+        if self._orig_stderr is not None:
+            sys.stderr = self._orig_stderr
+
+
 # ── The 10 Verified Startup Stages ───────────────────────────────────────────
 
 LAUNCH_STAGES = [
@@ -454,6 +529,12 @@ class APEXLauncher:
         self.hardware_info = detect_environment_hardware()
         self.is_launching = False
         self.is_running = False
+
+        # Live terminal output state
+        self._terminal_output: Any = None
+        self._shutdown_terminal_output: Any = None
+        self._terminal_log_handler: Optional[logging.Handler] = None
+        self._is_headless: bool = False
 
         # Scoped log capture
         self.log_handler = LogBufferHandler(capacity=1000)
@@ -515,6 +596,9 @@ class APEXLauncher:
                 pass
         self._shutdown_widgets.clear()
 
+        self._terminal_output = None
+        self._shutdown_terminal_output = None
+
         if self._active_container is not None:
             try:
                 self._active_container.close()
@@ -543,16 +627,68 @@ class APEXLauncher:
                 pass
             APEXLauncher._active_shutdown_container = None
 
+    def write_terminal(self, text: str):
+        """Safely writes real runtime output to the notebook terminal area and internal log handler."""
+        if not text:
+            return
+        redacted = redact_sensitive_data(str(text))
+        if not redacted.endswith("\n"):
+            redacted += "\n"
+
+        # Deliver to Section 1 terminal widget if rendered
+        if getattr(self, "_terminal_output", None) is not None:
+            try:
+                self._terminal_output.append_stdout(redacted)
+            except Exception:
+                pass
+
+        # Deliver to Section 2 shutdown terminal widget if rendered and shutting down
+        if getattr(self, "_shutdown_terminal_output", None) is not None and not self.is_running:
+            try:
+                self._shutdown_terminal_output.append_stdout(redacted)
+            except Exception:
+                pass
+
+        # In headless / console environments, write directly to stdout
+        if getattr(self, "_is_headless", False):
+            try:
+                sys.stdout.write(redacted)
+                sys.stdout.flush()
+            except Exception:
+                pass
+
+    def clear_terminal(self):
+        """Clears the displayed runtime terminal output without deleting backend logs."""
+        if getattr(self, "_terminal_output", None) is not None:
+            try:
+                self._terminal_output.clear_output()
+            except Exception:
+                pass
+
+    def clear_shutdown_terminal(self):
+        """Clears the displayed shutdown terminal output without deleting backend logs."""
+        if getattr(self, "_shutdown_terminal_output", None) is not None:
+            try:
+                self._shutdown_terminal_output.clear_output()
+            except Exception:
+                pass
+
     def _attach_log_handler(self):
-        """Attaches our scoped buffer handler to relevant loggers and prevents stdout leakage."""
+        """Attaches our scoped buffer handler and terminal handler to relevant loggers."""
         from runtime.logging.logger import remove_stream_handlers
 
-        for name in ("runtime", "runtime.lifecycle", "bootstrap", "uvicorn", "fastapi"):
+        if not hasattr(self, "_terminal_log_handler") or self._terminal_log_handler is None:
+            self._terminal_log_handler = TerminalLoggingHandler(self)
+
+        for name in ("runtime", "runtime.lifecycle", "bootstrap", "uvicorn", "fastapi", "apex"):
             l = logging.getLogger(name)
             remove_stream_handlers(l)
             l.propagate = False
             if self.log_handler not in l.handlers:
                 l.addHandler(self.log_handler)
+                l.setLevel(logging.INFO)
+            if self._terminal_log_handler not in l.handlers:
+                l.addHandler(self._terminal_log_handler)
                 l.setLevel(logging.INFO)
 
     def set_stage_status(
@@ -583,6 +719,34 @@ class APEXLauncher:
 
         if detail:
             st.detail = detail
+        if sub_op:
+            st.sub_operation = sub_op
+        elif status in (StageStatus.COMPLETED, StageStatus.FAILED, StageStatus.CANCELLED):
+            st.sub_operation = ""
+        if progress_pct is not None:
+            st.progress_pct = max(0.0, min(100.0, float(progress_pct)))
+        if error:
+            st.error = error
+
+        # Forward meaningful stage progress events to the live terminal
+        if status == StageStatus.RUNNING:
+            if detail or sub_op:
+                summary_msg = sub_op or detail
+                self.write_terminal(f"INFO: [{stage_id}/10] {st.name} — {summary_msg}")
+        elif status == StageStatus.COMPLETED:
+            self.write_terminal(f"INFO: [{stage_id}/10] {st.name} — {detail or 'Completed'}")
+        elif status == StageStatus.FAILED:
+            self.write_terminal(f"ERROR: [{stage_id}/10] {st.name} — {error or detail or 'Failed'}")
+
+        # Backward compatibility sync
+        legacy_status = "in_progress" if status == StageStatus.RUNNING else status.value
+        if st.error:
+            summary = st.error
+        elif st.detail and st.sub_operation:
+            summary = f"{st.detail} ({st.sub_operation})"
+        else:
+            summary = st.sub_operation or st.detail
+        self.stage_states[stage_id] = (legacy_status, summary)
         if sub_op:
             st.sub_operation = sub_op
         elif status in (StageStatus.COMPLETED, StageStatus.FAILED, StageStatus.CANCELLED):
@@ -736,214 +900,216 @@ class APEXLauncher:
         def _worker():
             success = False
             err_msg: Optional[str] = None
-            try:
-                # ── Step 1: Environment Initialization
-                _emit(1, StageStatus.RUNNING, detail="Initializing runtime environment & workspace...")
-                if self.lifecycle is None:
-                    self.lifecycle = RuntimeLifecycle(workspace_path=self.workspace_path)
+            with ScopedOutputRedirect(self):
+                try:
+                    self.write_terminal(f"INFO: Starting APEX runtime (Build: {self.BUILD_ID})...")
+                    # ── Step 1: Environment Initialization
+                    _emit(1, StageStatus.RUNNING, detail="Initializing runtime environment & workspace...")
+                    if self.lifecycle is None:
+                        self.lifecycle = RuntimeLifecycle(workspace_path=self.workspace_path)
 
-                def _on_sub_op(op_msg: str):
-                    _emit(1, StageStatus.RUNNING, sub_op=op_msg)
+                    def _on_sub_op(op_msg: str):
+                        _emit(1, StageStatus.RUNNING, sub_op=op_msg)
 
-                startup_ok = self.lifecycle.startup(interactive=False, on_progress=_on_sub_op)
-                if not startup_ok:
-                    raise RuntimeErrorBase(
-                        message="Runtime environment initialization failed.",
-                        cause="Failed to complete workspace or environment lifecycle initialization.",
-                        recovery="Check file permissions in workspace or restart the notebook kernel.",
-                        code=ApexErrorCode.GENERAL_RUNTIME_ERROR,
-                    )
-
-                cache_path = self.lifecycle.drive_manager.get_path("cache")
-                workspaces_dir = self.lifecycle.drive_manager.persistence_root / "workspaces"
-
-                if self.model_manager is None:
-                    self.model_manager = ModelManager(cache_path)
-                health_monitor = HealthMonitor(cache_path, self.model_manager)
-                workspace_manager = WorkspaceManager(workspaces_dir)
-                workspace_manager.create_workspace("default", "Default Workspace")
-                workspace_manager.load_workspace("default")
-
-                if self.orchestrator is None:
-                    self.orchestrator = RuntimeOrchestrator(self.model_manager, workspace_manager)
-                _emit(1, StageStatus.COMPLETED, detail="Environment & default workspace ready")
-
-                # ── Step 2: Dependency Verification
-                _emit(2, StageStatus.RUNNING, detail="Verifying Python dependencies...", sub_op="Checking packages...")
-                diag = DiagnosticsManager(self.workspace_path)
-                diag._report_dependencies()
-                _emit(2, StageStatus.COMPLETED, detail="Core dependencies verified")
-
-                # ── Step 3: Hardware & GPU Detection
-                _emit(3, StageStatus.RUNNING, detail="Inspecting compute accelerator...", sub_op="Probing CUDA & RAM...")
-                self.hardware_info = detect_environment_hardware()
-                if self.hardware_info.get("cuda_available"):
-                    self.config.device = "cuda"
-                    gpu_desc = f"{self.hardware_info['gpu_name']} ({self.hardware_info['vram_total_gb']} GB VRAM)"
-                else:
-                    self.config.device = "cpu"
-                    gpu_desc = self.hardware_info["gpu_name"]
-                _emit(3, StageStatus.COMPLETED, detail=f"Active device: {self.config.device} · {gpu_desc}")
-
-                # ── Control Plane (Steps 1–3) Complete. Fork Model Plane (4–7) and Connectivity Plane (8–10) in Parallel ──
-                model_branch_err: Optional[str] = None
-                conn_branch_err: Optional[str] = None
-
-                def _run_model_plane():
-                    nonlocal model_branch_err
-                    try:
-                        # ── Step 4: Model Resolution
-                        _emit(4, StageStatus.RUNNING, detail=f"Resolving {self.config.model_id}...", sub_op="Validating Hugging Face repository...")
-                        norm_id, is_val, val_err = normalize_hf_model_id(self.config.model_id)
-                        if not is_val:
-                            raise RuntimeErrorBase(
-                                message=val_err or "Invalid Model ID",
-                                cause="Provided model ID or URL could not be parsed as a valid Hugging Face repository.",
-                                recovery="Check the model name format (e.g. 'Qwen/Qwen2.5-0.5B') or Hugging Face URL.",
-                                code=ApexErrorCode.MODEL_FILES_INVALID,
-                            )
-                        self.config.model_id = norm_id
-                        _emit(4, StageStatus.COMPLETED, detail=f"Resolved repository ID: {norm_id}")
-
-                        # ── Step 5: Model Download & Cache Verification
-                        _emit(5, StageStatus.RUNNING, detail=f"Checking cached weights for {norm_id}...", sub_op="Verifying cache & downloading weights...")
-                        if self.orchestrator:
-                            self.orchestrator.state_machine.transition_to("MODEL_DOWNLOADING")
-                        self.model_manager.download_model(
-                            norm_id,
-                            revision=self.config.revision,
-                            hf_token=self.config.hf_token,
+                    startup_ok = self.lifecycle.startup(interactive=False, on_progress=_on_sub_op)
+                    if not startup_ok:
+                        raise RuntimeErrorBase(
+                            message="Runtime environment initialization failed.",
+                            cause="Failed to complete workspace or environment lifecycle initialization.",
+                            recovery="Check file permissions in workspace or restart the notebook kernel.",
+                            code=ApexErrorCode.GENERAL_RUNTIME_ERROR,
                         )
-                        _emit(5, StageStatus.COMPLETED, detail="Model weights downloaded and verified in cache")
 
-                        # ── Step 6: Model Loading into VRAM / RAM
-                        target_mem = "VRAM" if self.config.device == "cuda" else "system RAM"
-                        _emit(6, StageStatus.RUNNING, detail=f"Loading weights into {target_mem} ({self.config.precision})...", sub_op=f"Allocating tensors to {target_mem}...")
-                        if self.orchestrator:
-                            self.orchestrator.state_machine.transition_to("MODEL_LOADING")
-                        self.model_manager.load_model(
-                            norm_id,
-                            precision=self.config.precision,
-                            revision=self.config.revision,
-                            hf_token=self.config.hf_token,
-                            device=self.config.device,
-                        )
-                        _emit(6, StageStatus.COMPLETED, detail=f"Model allocated in {target_mem} ({self.config.precision})")
+                    cache_path = self.lifecycle.drive_manager.get_path("cache")
+                    workspaces_dir = self.lifecycle.drive_manager.persistence_root / "workspaces"
 
-                        # ── Step 7: Inference Engine Initialization
-                        _emit(7, StageStatus.RUNNING, detail="Initializing inference engine and warm-up...", sub_op="Executing warm-up inference pass...")
-                        if self.orchestrator:
-                            self.orchestrator.state_machine.transition_to("MODEL_READY")
-                        if not self.model_manager.is_loaded:
-                            raise RuntimeErrorBase(
-                                message="Model failed to initialize properly in memory.",
-                                cause="Inference engine active engine is not loaded.",
-                                recovery="Verify that the selected model architecture is supported.",
-                                code=ApexErrorCode.MODEL_LOAD_FAILED,
+                    if self.model_manager is None:
+                        self.model_manager = ModelManager(cache_path)
+                    health_monitor = HealthMonitor(cache_path, self.model_manager)
+                    workspace_manager = WorkspaceManager(workspaces_dir)
+                    workspace_manager.create_workspace("default", "Default Workspace")
+                    workspace_manager.load_workspace("default")
+
+                    if self.orchestrator is None:
+                        self.orchestrator = RuntimeOrchestrator(self.model_manager, workspace_manager)
+                    _emit(1, StageStatus.COMPLETED, detail="Environment & default workspace ready")
+
+                    # ── Step 2: Dependency Verification
+                    _emit(2, StageStatus.RUNNING, detail="Verifying Python dependencies...", sub_op="Checking packages...")
+                    diag = DiagnosticsManager(self.workspace_path)
+                    diag._report_dependencies()
+                    _emit(2, StageStatus.COMPLETED, detail="Core dependencies verified")
+
+                    # ── Step 3: Hardware & GPU Detection
+                    _emit(3, StageStatus.RUNNING, detail="Inspecting compute accelerator...", sub_op="Probing CUDA & RAM...")
+                    self.hardware_info = detect_environment_hardware()
+                    if self.hardware_info.get("cuda_available"):
+                        self.config.device = "cuda"
+                        gpu_desc = f"{self.hardware_info['gpu_name']} ({self.hardware_info['vram_total_gb']} GB VRAM)"
+                    else:
+                        self.config.device = "cpu"
+                        gpu_desc = self.hardware_info["gpu_name"]
+                    _emit(3, StageStatus.COMPLETED, detail=f"Active device: {self.config.device} · {gpu_desc}")
+
+                    # ── Control Plane (Steps 1–3) Complete. Fork Model Plane (4–7) and Connectivity Plane (8–10) in Parallel ──
+                    model_branch_err: Optional[str] = None
+                    conn_branch_err: Optional[str] = None
+
+                    def _run_model_plane():
+                        nonlocal model_branch_err
+                        try:
+                            # ── Step 4: Model Resolution
+                            _emit(4, StageStatus.RUNNING, detail=f"Resolving {self.config.model_id}...", sub_op="Validating Hugging Face repository...")
+                            norm_id, is_val, val_err = normalize_hf_model_id(self.config.model_id)
+                            if not is_val:
+                                raise RuntimeErrorBase(
+                                    message=val_err or "Invalid Model ID",
+                                    cause="Provided model ID or URL could not be parsed as a valid Hugging Face repository.",
+                                    recovery="Check the model name format (e.g. 'Qwen/Qwen2.5-0.5B') or Hugging Face URL.",
+                                    code=ApexErrorCode.MODEL_FILES_INVALID,
+                                )
+                            self.config.model_id = norm_id
+                            _emit(4, StageStatus.COMPLETED, detail=f"Resolved repository ID: {norm_id}")
+
+                            # ── Step 5: Model Download & Cache Verification
+                            _emit(5, StageStatus.RUNNING, detail=f"Checking cached weights for {norm_id}...", sub_op="Verifying cache & downloading weights...")
+                            if self.orchestrator:
+                                self.orchestrator.state_machine.transition_to("MODEL_DOWNLOADING")
+                            self.model_manager.download_model(
+                                norm_id,
+                                revision=self.config.revision,
+                                hf_token=self.config.hf_token,
                             )
-                        _emit(7, StageStatus.COMPLETED, detail="Inference engine operational")
-                    except Exception as m_ex:
-                        model_branch_err = str(m_ex)
-                        logger.error(f"Model plane execution error: {m_ex}", exc_info=True)
-                        for sid in range(4, 8):
-                            if self.stages[sid].status == StageStatus.RUNNING:
-                                _emit(sid, StageStatus.FAILED, error=model_branch_err)
-                            elif self.stages[sid].status == StageStatus.PENDING:
-                                _emit(sid, StageStatus.CANCELLED, detail="Cancelled")
+                            _emit(5, StageStatus.COMPLETED, detail="Model weights downloaded and verified in cache")
 
-                def _run_connectivity_plane():
-                    nonlocal conn_branch_err
-                    try:
-                        # ── Step 8: Local API Server Startup
-                        _emit(8, StageStatus.RUNNING, detail="Starting API server...", sub_op="Binding FastAPI ASGI server...")
-                        if self.orchestrator:
-                            self.orchestrator.state_machine.transition_to("API_STARTING")
-
-                        if self.api_manager is None:
-                            api_config = APIConfig(
-                                api_enabled=True,
-                                internal_port=self.config.port or 8000,
-                                transport=self.config.transport or "cloudflare",
-                                enable_auth=self.config.enable_auth,
-                                api_key=self.config.api_key,
+                            # ── Step 6: Model Loading into VRAM / RAM
+                            target_mem = "VRAM" if self.config.device == "cuda" else "system RAM"
+                            _emit(6, StageStatus.RUNNING, detail=f"Loading weights into {target_mem} ({self.config.precision})...", sub_op=f"Allocating tensors to {target_mem}...")
+                            if self.orchestrator:
+                                self.orchestrator.state_machine.transition_to("MODEL_LOADING")
+                            self.model_manager.load_model(
+                                norm_id,
+                                precision=self.config.precision,
+                                revision=self.config.revision,
+                                hf_token=self.config.hf_token,
+                                device=self.config.device,
                             )
-                            api_state = RuntimeState()
-                            self.api_manager = APIManager(api_config, api_state, self.model_manager)
-                        else:
-                            self.api_manager.config.transport = self.config.transport or "cloudflare"
-                            self.api_manager.config.internal_port = self.config.port or 8000
-                            self.api_manager.config.enable_auth = self.config.enable_auth
-                            if self.config.api_key:
-                                self.api_manager.config.api_key = self.config.api_key
+                            _emit(6, StageStatus.COMPLETED, detail=f"Model allocated in {target_mem} ({self.config.precision})")
 
-                        api_ok = self.api_manager.start()
-                        if not api_ok:
-                            raise RuntimeErrorBase(
-                                message=f"API startup failed: {self.api_manager.state.last_error}",
-                                cause="FastAPI or Uvicorn server failed to bind or start.",
-                                recovery="Check if the selected port is already in use or inspect the Developer Console.",
-                                code=ApexErrorCode.API_STARTUP_FAILED,
-                            )
-                        _emit(8, StageStatus.COMPLETED, detail=f"Local server bound on port {self.api_manager.config.internal_port}")
+                            # ── Step 7: Inference Engine Initialization
+                            _emit(7, StageStatus.RUNNING, detail="Initializing inference engine and warm-up...", sub_op="Executing warm-up inference pass...")
+                            if self.orchestrator:
+                                self.orchestrator.state_machine.transition_to("MODEL_READY")
+                            if not self.model_manager.is_loaded:
+                                raise RuntimeErrorBase(
+                                    message="Model failed to initialize properly in memory.",
+                                    cause="Inference engine active engine is not loaded.",
+                                    recovery="Verify that the selected model architecture is supported.",
+                                    code=ApexErrorCode.MODEL_LOAD_FAILED,
+                                )
+                            _emit(7, StageStatus.COMPLETED, detail="Inference engine operational")
+                        except Exception as m_ex:
+                            model_branch_err = str(m_ex)
+                            logger.error(f"Model plane execution error: {m_ex}", exc_info=True)
+                            for sid in range(4, 8):
+                                if self.stages[sid].status == StageStatus.RUNNING:
+                                    _emit(sid, StageStatus.FAILED, error=model_branch_err)
+                                elif self.stages[sid].status == StageStatus.PENDING:
+                                    _emit(sid, StageStatus.CANCELLED, detail="Cancelled")
 
-                        # ── Step 9: Local API Health Verification
-                        _emit(9, StageStatus.RUNNING, detail="Verifying local API health endpoint...", sub_op="Probing /health endpoint...")
-                        time.sleep(0.5)
-                        if self.api_manager.state.api_status.value not in ("running", "ready", "online"):
-                            pass
-                        _emit(9, StageStatus.COMPLETED, detail="Local endpoint /health confirmed healthy (HTTP 200)")
+                    def _run_connectivity_plane():
+                        nonlocal conn_branch_err
+                        try:
+                            # ── Step 8: Local API Server Startup
+                            _emit(8, StageStatus.RUNNING, detail="Starting API server...", sub_op="Binding FastAPI ASGI server...")
+                            if self.orchestrator:
+                                self.orchestrator.state_machine.transition_to("API_STARTING")
 
-                        # ── Step 10: Cloudflare Tunnel & Public Endpoint Verification
-                        _emit(10, StageStatus.RUNNING, detail="Acquiring and verifying public tunnel URL...", sub_op="Connecting Cloudflare Quick Tunnel...")
-                        pub_url = self.api_manager.state.public_url or f"http://127.0.0.1:{self.api_manager.config.internal_port}"
-                        openai_url = self.api_manager.state.openai_url or f"{pub_url}/v1"
+                            if self.api_manager is None:
+                                api_config = APIConfig(
+                                    api_enabled=True,
+                                    internal_port=self.config.port or 8000,
+                                    transport=self.config.transport or "cloudflare",
+                                    enable_auth=self.config.enable_auth,
+                                    api_key=self.config.api_key,
+                                )
+                                api_state = RuntimeState()
+                                self.api_manager = APIManager(api_config, api_state, self.model_manager)
+                            else:
+                                self.api_manager.config.transport = self.config.transport or "cloudflare"
+                                self.api_manager.config.internal_port = self.config.port or 8000
+                                self.api_manager.config.enable_auth = self.config.enable_auth
+                                if self.config.api_key:
+                                    self.api_manager.config.api_key = self.config.api_key
 
-                        if self.orchestrator:
-                            self.orchestrator.state_machine.transition_to("READY")
-                        _emit(10, StageStatus.COMPLETED, detail=f"Verified public endpoint: {pub_url}")
-                    except Exception as c_ex:
-                        conn_branch_err = str(c_ex)
-                        logger.error(f"Connectivity plane execution error: {c_ex}", exc_info=True)
-                        for sid in range(8, 11):
-                            if self.stages[sid].status == StageStatus.RUNNING:
-                                _emit(sid, StageStatus.FAILED, error=conn_branch_err)
-                            elif self.stages[sid].status == StageStatus.PENDING:
-                                _emit(sid, StageStatus.CANCELLED, detail="Cancelled")
+                            api_ok = self.api_manager.start()
+                            if not api_ok:
+                                raise RuntimeErrorBase(
+                                    message=f"API startup failed: {self.api_manager.state.last_error}",
+                                    cause="FastAPI or Uvicorn server failed to bind or start.",
+                                    recovery="Check if the selected port is already in use or inspect the Developer Console.",
+                                    code=ApexErrorCode.API_STARTUP_FAILED,
+                                )
+                            _emit(8, StageStatus.COMPLETED, detail=f"Local server bound on port {self.api_manager.config.internal_port}")
 
-                th_model = threading.Thread(target=_run_model_plane, name="APEX-Model-Branch", daemon=True)
-                th_conn = threading.Thread(target=_run_connectivity_plane, name="APEX-Conn-Branch", daemon=True)
+                            # ── Step 9: Local API Health Verification
+                            _emit(9, StageStatus.RUNNING, detail="Verifying local API health endpoint...", sub_op="Probing /health endpoint...")
+                            time.sleep(0.5)
+                            if self.api_manager.state.api_status.value not in ("running", "ready", "online"):
+                                pass
+                            _emit(9, StageStatus.COMPLETED, detail="Local endpoint /health confirmed healthy (HTTP 200)")
 
-                th_model.start()
-                th_conn.start()
+                            # ── Step 10: Cloudflare Tunnel & Public Endpoint Verification
+                            _emit(10, StageStatus.RUNNING, detail="Acquiring and verifying public tunnel URL...", sub_op="Connecting Cloudflare Quick Tunnel...")
+                            pub_url = self.api_manager.state.public_url or f"http://127.0.0.1:{self.api_manager.config.internal_port}"
+                            openai_url = self.api_manager.state.openai_url or f"{pub_url}/v1"
 
-                th_model.join()
-                th_conn.join()
+                            if self.orchestrator:
+                                self.orchestrator.state_machine.transition_to("READY")
+                            _emit(10, StageStatus.COMPLETED, detail=f"Verified public endpoint: {pub_url}")
+                        except Exception as c_ex:
+                            conn_branch_err = str(c_ex)
+                            logger.error(f"Connectivity plane execution error: {c_ex}", exc_info=True)
+                            for sid in range(8, 11):
+                                if self.stages[sid].status == StageStatus.RUNNING:
+                                    _emit(sid, StageStatus.FAILED, error=conn_branch_err)
+                                elif self.stages[sid].status == StageStatus.PENDING:
+                                    _emit(sid, StageStatus.CANCELLED, detail="Cancelled")
 
-                if model_branch_err or conn_branch_err:
-                    raise RuntimeError(model_branch_err or conn_branch_err)
+                    th_model = threading.Thread(target=_run_model_plane, name="APEX-Model-Branch", daemon=True)
+                    th_conn = threading.Thread(target=_run_connectivity_plane, name="APEX-Conn-Branch", daemon=True)
 
-                self.is_running = True
-                success = True
-            except Exception as ex:
-                logger.error(f"APEX Launch failed: {ex}", exc_info=True)
-                err_msg = str(ex)
-                failed_sid = self.active_stage_id or 1
-                for sid in range(1, 11):
-                    if self.stages[sid].status == StageStatus.RUNNING:
-                        failed_sid = sid
-                        _emit(sid, StageStatus.FAILED, error=err_msg)
-                        break
-                # Cancel remaining stages
-                for rem_sid in range(failed_sid + 1, 11):
-                    if self.stages[rem_sid].status == StageStatus.PENDING:
-                        _emit(rem_sid, StageStatus.CANCELLED, detail="Cancelled")
-                if self.orchestrator:
-                    self.orchestrator.state_machine.transition_to("FAILED")
-            finally:
-                self._stop_stall_watchdog()
-                self.is_launching = False
-                if on_complete:
-                    on_complete(success, err_msg)
+                    th_model.start()
+                    th_conn.start()
+
+                    th_model.join()
+                    th_conn.join()
+
+                    if model_branch_err or conn_branch_err:
+                        raise RuntimeError(model_branch_err or conn_branch_err)
+
+                    self.is_running = True
+                    success = True
+                except Exception as ex:
+                    logger.error(f"APEX Launch failed: {ex}", exc_info=True)
+                    err_msg = str(ex)
+                    failed_sid = self.active_stage_id or 1
+                    for sid in range(1, 11):
+                        if self.stages[sid].status == StageStatus.RUNNING:
+                            failed_sid = sid
+                            _emit(sid, StageStatus.FAILED, error=err_msg)
+                            break
+                    # Cancel remaining stages
+                    for rem_sid in range(failed_sid + 1, 11):
+                        if self.stages[rem_sid].status == StageStatus.PENDING:
+                            _emit(rem_sid, StageStatus.CANCELLED, detail="Cancelled")
+                    if self.orchestrator:
+                        self.orchestrator.state_machine.transition_to("FAILED")
+                finally:
+                    self._stop_stall_watchdog()
+                    self.is_launching = False
+                    if on_complete:
+                        on_complete(success, err_msg)
 
         th = threading.Thread(target=_worker, daemon=True)
         th.start()
@@ -959,57 +1125,64 @@ class APEXLauncher:
 
         def _worker():
             err: Optional[str] = None
-            try:
-                if on_progress:
-                    on_progress("Stopping Cloudflare tunnel and API server...")
-                if self.api_manager:
-                    self.api_manager.stop()
-
-                if on_progress:
-                    on_progress("Unloading model weights from memory...")
-                if self.model_manager:
-                    self.model_manager.unload_model()
-
-                if on_progress:
-                    on_progress("Releasing accelerator memory and running garbage collection...")
+            with ScopedOutputRedirect(self):
                 try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except ImportError:
-                    pass
-                gc.collect()
+                    self.write_terminal("INFO: Initiating graceful APEX shutdown...")
+                    if on_progress:
+                        on_progress("Stopping Cloudflare tunnel and API server...")
+                    if self.api_manager:
+                        self.api_manager.stop()
 
-                if on_progress:
-                    on_progress("Stopping orchestrator and task queue...")
-                if self.orchestrator:
-                    self.orchestrator.shutdown()
+                    if on_progress:
+                        on_progress("Unloading model weights from memory...")
+                    if self.model_manager:
+                        self.model_manager.unload_model()
 
-                self.is_running = False
-                if on_progress:
-                    on_progress("All resources cleanly released.")
-            except Exception as e:
-                logger.error(f"APEX Shutdown error: {e}", exc_info=True)
-                err = str(e)
-            finally:
-                if on_complete:
-                    on_complete(err is None, err)
+                    if on_progress:
+                        on_progress("Releasing accelerator memory and running garbage collection...")
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+                    gc.collect()
+
+                    if on_progress:
+                        on_progress("Stopping orchestrator and task queue...")
+                    if self.orchestrator:
+                        self.orchestrator.shutdown()
+
+                    self.is_running = False
+                    self.write_terminal("INFO: APEX shutdown complete. All resources cleanly released.")
+                    if on_progress:
+                        on_progress("All resources cleanly released.")
+                except Exception as e:
+                    logger.error(f"APEX Shutdown error: {e}", exc_info=True)
+                    self.write_terminal(f"ERROR: APEX Shutdown error: {e}")
+                    err = str(e)
+                finally:
+                    if on_complete:
+                        on_complete(err is None, err)
 
         th = threading.Thread(target=_worker, daemon=True)
         th.start()
         return True
 
     def _render_hardware_html(self) -> str:
-        """Renders the detected hardware summary grid and warnings."""
+        """Renders the compact detected hardware summary and warnings."""
         hw = self.hardware_info
-        vram_str = f"{hw['vram_total_gb']} GB" if hw.get("vram_total_gb") else "N/A (CPU)"
-        ram_str = f"{hw['ram_total_gb']} GB ({hw['ram_available_gb']} GB free)"
+        is_cuda = bool(hw.get("cuda_available", False))
+        runtime_name = hw.get("runtime_name", "Local Environment")
+        device_str = "CUDA GPU" if is_cuda else "CPU"
+        gpu_str = f"{hw.get('gpu_name', 'None')} ({hw.get('vram_total_gb', 0)} GB VRAM)" if is_cuda else "Not available"
+        ram_str = f"{hw.get('ram_total_gb', 0)} GB" if hw.get("ram_total_gb") else "Unknown"
 
         warning_banner = ""
-        if not hw.get("cuda_available"):
+        if not is_cuda:
             if hw.get("is_colab"):
                 warning_banner = """
-                <div style="background:#fffbeb; border:1px solid #fde68a; border-left:4px solid #f59e0b; border-radius:6px; padding:10px 14px; margin-top:12px; font-size:12px; color:#92400e; line-height:1.45;">
+                <div style="background:#fffbeb; border:1px solid #fde68a; border-left:3px solid #f59e0b; border-radius:4px; padding:6px 10px; margin-top:8px; font-size:12px; color:#92400e; line-height:1.45;">
                     <b>⚠️ Colab CPU Runtime Active (No GPU Detected)</b><br>
                     You are running on Google Colab's standard CPU runtime without GPU acceleration.<br>
                     Inference will be slow, and models larger than 2B parameters will exceed available RAM (12.7 GB) and crash.<br>
@@ -1018,7 +1191,7 @@ class APEXLauncher:
                 """
             else:
                 warning_banner = """
-                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #64748b; border-radius:6px; padding:10px 14px; margin-top:12px; font-size:12px; color:#334155; line-height:1.45;">
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:3px solid #64748b; border-radius:4px; padding:6px 10px; margin-top:8px; font-size:12px; color:#334155; line-height:1.45;">
                     <b>ℹ️ CPU Mode Active</b>: No CUDA GPU detected. Models will execute on CPU. Ensure sufficient system RAM is available.
                 </div>
                 """
@@ -1026,42 +1199,22 @@ class APEXLauncher:
         storage_notice = ""
         if hw.get("is_colab") and not hw.get("drive_mounted"):
             storage_notice = """
-            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #64748b; border-radius:6px; padding:8px 12px; margin-top:8px; font-size:12px; color:#475569; line-height:1.4;">
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:3px solid #64748b; border-radius:4px; padding:6px 10px; margin-top:6px; font-size:11.5px; color:#475569; line-height:1.4;">
                 <b>Storage Notice:</b> Ephemeral local storage active. Google Drive is not mounted; models and caches will not persist across Colab VM restarts.
             </div>
             """
 
         return f"""
-        <div class="apex-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <div class="apex-card-title" style="margin-bottom:0;">Detected Hardware & Runtime</div>
-                <span class="apex-build-badge">Build: {APEX_BUILD_ID}</span>
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px; color:#334155; line-height:1.5;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <div style="font-weight:600; font-size:12.5px; color:#334155;">Detected Hardware & Runtime</div>
+                <span style="font-size:11px; color:#94a3b8; font-family:monospace;">Build: {APEX_BUILD_ID}</span>
             </div>
-            <div class="apex-grid-hw">
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">Runtime Environment</span>
-                    <span class="apex-hw-value">{html.escape(hw['runtime_name'])}</span>
-                </div>
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">Accelerator</span>
-                    <span class="apex-hw-value">{html.escape(hw['gpu_name'])}</span>
-                </div>
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">GPU VRAM</span>
-                    <span class="apex-hw-value">{vram_str}</span>
-                </div>
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">System RAM</span>
-                    <span class="apex-hw-value">{ram_str}</span>
-                </div>
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">Compute Device</span>
-                    <span class="apex-hw-value">{html.escape(hw['device'])}</span>
-                </div>
-                <div class="apex-hw-item">
-                    <span class="apex-hw-label">Storage Backend</span>
-                    <span class="apex-hw-value">{html.escape(hw.get('storage_desc', 'Local Storage'))}</span>
-                </div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:6px;">
+                <div><span style="color:#64748b; font-size:11px; display:block;">Runtime</span> <b>{html.escape(runtime_name)}</b></div>
+                <div><span style="color:#64748b; font-size:11px; display:block;">Device</span> <b>{device_str}</b></div>
+                <div><span style="color:#64748b; font-size:11px; display:block;">GPU</span> <b>{html.escape(gpu_str)}</b></div>
+                <div><span style="color:#64748b; font-size:11px; display:block;">RAM</span> <b>{ram_str}</b></div>
             </div>
             {warning_banner}
             {storage_notice}
@@ -1528,7 +1681,8 @@ print(response.choices[0].message.content)"""
         # ── 4. Precision Control & Trade-off Guide
         precision_options = [
             ("Auto (Recommended based on hardware)", "auto"),
-            ("16-bit (float16 / bfloat16 — standard GPU)", "float16"),
+            ("16-bit (float16 — standard GPU)", "float16"),
+            ("16-bit Brain (bfloat16 — modern GPU)", "bfloat16"),
             ("8-bit (bitsandbytes INT8 — lower VRAM)", "8bit"),
             ("4-bit (bitsandbytes NF4 — minimal VRAM)", "4bit"),
             ("32-bit (float32 — CPU execution)", "float32"),
@@ -1650,6 +1804,52 @@ print(response.choices[0].message.content)"""
         checklist_html = widgets.HTML(value="")
         conn_panel_html = widgets.HTML(value="")
         alert_html = widgets.HTML(value="")
+
+        # ── 7b. Real-Time Terminal Output Area
+        terminal_output = widgets.Output(
+            layout=widgets.Layout(
+                width="100%",
+                max_height="320px",
+                overflow="auto",
+                background_color="#0f172a",
+                padding="8px 12px",
+                border_radius="0 0 6px 6px",
+            )
+        )
+        self._terminal_output = terminal_output
+
+        clear_terminal_btn = widgets.Button(
+            description="Clear Output",
+            icon="trash",
+            layout=widgets.Layout(width="110px", height="28px"),
+        )
+        clear_terminal_btn.on_click(lambda _: self.clear_terminal())
+
+        terminal_title_html = widgets.HTML(
+            value=(
+                "<div style='display:flex; align-items:center; gap:8px;'>"
+                "<span style='color:#38bdf8; font-family:monospace;'>●</span>"
+                "<span style='color:#f8fafc; font-weight:600; font-size:12px;'>Terminal Output</span>"
+                f"<span style='color:#64748b; font-size:11px; font-family:monospace;'>[Build: {APEX_BUILD_ID}]</span>"
+                "</div>"
+            )
+        )
+
+        terminal_header = widgets.HBox(
+            [terminal_title_html, clear_terminal_btn],
+            layout=widgets.Layout(
+                background_color="#1e293b",
+                padding="6px 12px",
+                border_radius="6px 6px 0 0",
+                justify_content="space-between",
+                align_items="center",
+            ),
+        )
+
+        terminal_box = widgets.VBox(
+            [terminal_header, terminal_output],
+            layout=widgets.Layout(margin="12px 0"),
+        )
 
         # ── 8. Live Developer Console
         level_dd = widgets.Dropdown(
@@ -1874,6 +2074,8 @@ print(response.choices[0].message.content)"""
             conn_panel_html.value = ""
             connect_accordion.layout.display = "none"
 
+            self.clear_terminal()
+            self.write_terminal(f"INFO: Launch triggered for model '{norm_id}' (Precision: {self.config.precision})...")
             checklist_html.value = self._render_checklist_html()
 
             def _progress(sid, st, msg):
@@ -1953,6 +2155,8 @@ print(completion.choices[0].message.content)"""
             "hf_token": hf_token_pwd,
             "start_btn": start_btn,
             "validate_btn": validate_btn,
+            "terminal_output": terminal_output,
+            "clear_terminal_btn": clear_terminal_btn,
             "checklist_html": checklist_html,
             "conn_panel_html": conn_panel_html,
             "alert_html": alert_html,
@@ -1974,13 +2178,12 @@ print(completion.choices[0].message.content)"""
                         token_section_box,
                         precision_section_box,
                     ],
-                    layout=widgets.Layout(margin="0 0 12px 0"),
+                    layout=widgets.Layout(margin="0 0 10px 0"),
                 ),
                 advanced_accordion,
-                widgets.HBox([start_btn, validate_btn, mode_dd], layout=widgets.Layout(gap="12px", margin="16px 0 8px 0", align_items="center")),
+                widgets.HBox([start_btn, validate_btn], layout=widgets.Layout(gap="12px", margin="14px 0 6px 0", align_items="center")),
                 alert_html,
-                checklist_html,
-                dev_console_accordion,
+                terminal_box,
                 conn_panel_html,
                 connect_accordion,
             ],
@@ -2056,6 +2259,8 @@ print(completion.choices[0].message.content)"""
         def _on_stop_click(_):
             stop_btn.disabled = True
             stop_btn.description = "Shutting down..."
+            self.clear_shutdown_terminal()
+            self.write_terminal("INFO: Shutdown requested by user.")
 
             def _progress(step_msg):
                 progress_html.value = f"<div style='font-size:12px; color:#64748b; margin-top:8px;'>{html.escape(step_msg)}</div>"
@@ -2084,12 +2289,64 @@ print(completion.choices[0].message.content)"""
 
         stop_btn.on_click(_on_stop_click)
 
+        shutdown_terminal_output = widgets.Output(
+            layout=widgets.Layout(
+                width="100%",
+                max_height="220px",
+                overflow="auto",
+                background_color="#0f172a",
+                padding="8px 12px",
+                border_radius="0 0 6px 6px",
+            )
+        )
+        self._shutdown_terminal_output = shutdown_terminal_output
+
+        clear_shutdown_btn = widgets.Button(
+            description="Clear Output",
+            icon="trash",
+            layout=widgets.Layout(width="110px", height="28px"),
+        )
+        clear_shutdown_btn.on_click(lambda _: self.clear_shutdown_terminal())
+
+        shutdown_terminal_header = widgets.HBox(
+            [
+                widgets.HTML(
+                    "<div style='display:flex; align-items:center; gap:8px;'>"
+                    "<span style='color:#f87171; font-family:monospace;'>●</span>"
+                    "<span style='color:#f8fafc; font-weight:600; font-size:12px;'>Shutdown Terminal Output</span>"
+                    "</div>"
+                ),
+                clear_shutdown_btn,
+            ],
+            layout=widgets.Layout(
+                background_color="#1e293b",
+                padding="6px 12px",
+                border_radius="6px 6px 0 0",
+                justify_content="space-between",
+                align_items="center",
+            ),
+        )
+
+        shutdown_terminal_box = widgets.VBox(
+            [shutdown_terminal_header, shutdown_terminal_output],
+            layout=widgets.Layout(margin="12px 0"),
+        )
+
+        self._shutdown_widgets = {
+            "status_html": status_html,
+            "stop_btn": stop_btn,
+            "progress_html": progress_html,
+            "terminal_output": shutdown_terminal_output,
+            "clear_terminal_btn": clear_shutdown_btn,
+        }
+
         container = widgets.VBox(
             [
                 widgets.HTML("<div class='apex-card-title'>Runtime Status & Teardown</div>"),
                 status_html,
                 stop_btn,
                 progress_html,
+                shutdown_terminal_box,
             ],
             layout=widgets.Layout(
                 background_color="#ffffff",

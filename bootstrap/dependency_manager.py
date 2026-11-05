@@ -90,14 +90,26 @@ class DependencyInstaller:
         
         for attempt in range(retries):
             try:
-                cmd = [sys.executable, "-m", "pip", "install", "-q"] + package_list
-                res = subprocess.run(cmd, capture_output=True, text=True)
-                if res.returncode == 0:
+                cmd = [sys.executable, "-m", "pip", "install", "--no-warn-script-location"] + package_list
+                p = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                if p.stdout:
+                    for line in p.stdout:
+                        line_str = line.strip()
+                        if line_str:
+                            logger.info(f"pip: {line_str}")
+                p.wait()
+
+                if p.returncode == 0:
                     logger.info("Package installations finished successfully.", extra={"prefix": "SUCCESS"})
                     return True
                 else:
-                    err_details = res.stderr.strip() or res.stdout.strip()
-                    logger.warning(f"Installation attempt {attempt+1} failed: {err_details}", extra={"prefix": "WARNING"})
+                    logger.warning(f"Installation attempt {attempt+1} failed with return code {p.returncode}", extra={"prefix": "WARNING"})
             except Exception as e:
                 logger.warning(f"Installation attempt {attempt+1} failed: {e}", extra={"prefix": "WARNING"})
 

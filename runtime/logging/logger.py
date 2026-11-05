@@ -100,11 +100,13 @@ class WidgetLogHandler(logging.Handler):
 REDACTION_PATTERNS = [
     # Hugging Face access tokens (hf_...)
     (re.compile(r"hf_[a-zA-Z0-9]{20,}", re.IGNORECASE), "hf_●●●●[REDACTED]"),
+    # APEX API Keys (apex_sk_... or apex-...)
+    (re.compile(r"apex_[a-zA-Z0-9_\-]{16,}", re.IGNORECASE), "apex_●●●●[REDACTED]"),
     # Bearer tokens in Authorization headers
     (re.compile(r"Bearer\s+([a-zA-Z0-9_\-\.]{10,})", re.IGNORECASE), "Bearer ●●●●[REDACTED]"),
     # Explicit keys / secrets in key=val / JSON formats
     (
-        re.compile(r"((?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?)([a-zA-Z0-9_\-\.]{8,})(['\"]?)", re.IGNORECASE),
+        re.compile(r"((?:api[_-]?key|server[_-]?key|secret|token|password)\s*[:=]\s*['\"]?)([a-zA-Z0-9_\-\.]{8,})(['\"]?)", re.IGNORECASE),
         r"\1●●●●[REDACTED]\3",
     ),
     # Cloudflare tunnel tokens

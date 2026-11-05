@@ -166,6 +166,7 @@ class TunnelManager:
                 self.recent_logs.append(clean_line)
                 if len(self.recent_logs) > 50:
                     self.recent_logs.pop(0)
+                logger.info(f"cloudflared: {clean_line}")
 
             match = url_regex.search(line)
             if match and not self.state.tunnel_connected:
