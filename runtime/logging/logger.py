@@ -1,9 +1,14 @@
 """Logging module for APEX with safe handlers and semantic UI formatting."""
 
+import collections
 import logging
+import os
+import re
 import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Deque, List, Optional
 
 # Optional color support
 try:
@@ -88,6 +93,132 @@ class WidgetLogHandler(logging.Handler):
                 self.widget.append_display_data(HTML(f"<div>{msg}</div>"))
             except Exception:
                 pass
+
+
+# ── Secret Redaction & Live Observability Buffer ──────────────────────────────
+
+REDACTION_PATTERNS = [
+    # Hugging Face access tokens (hf_...)
+    (re.compile(r"hf_[a-zA-Z0-9]{20,}", re.IGNORECASE), "hf_●●●●[REDACTED]"),
+    # Bearer tokens in Authorization headers
+    (re.compile(r"Bearer\s+([a-zA-Z0-9_\-\.]{10,})", re.IGNORECASE), "Bearer ●●●●[REDACTED]"),
+    # Explicit keys / secrets in key=val / JSON formats
+    (
+        re.compile(r"((?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?)([a-zA-Z0-9_\-\.]{8,})(['\"]?)", re.IGNORECASE),
+        r"\1●●●●[REDACTED]\3",
+    ),
+    # Cloudflare tunnel tokens
+    (
+        re.compile(r"(tunnel[_-]?token\s*[:=]\s*['\"]?)([a-zA-Z0-9_\-]{20,})(['\"]?)", re.IGNORECASE),
+        r"\1●●●●[REDACTED]\3",
+    ),
+]
+
+
+def redact_sensitive_data(text: str) -> str:
+    """Redacts sensitive API keys, Hugging Face tokens, and credentials from log strings."""
+    if not text:
+        return ""
+    result = str(text)
+    for pattern, replacement in REDACTION_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+@dataclass
+class LogEntry:
+    """Structured representation of an in-memory log event for the Developer Console."""
+    timestamp: str          # "HH:MM:SS"
+    level: str              # "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+    logger_name: str        # e.g. "runtime.lifecycle"
+    message: str            # Redacted message content
+    raw_time: float = field(default_factory=time.time)
+
+    def to_formatted_string(self) -> str:
+        return f"[{self.timestamp}] {self.level:<7} [{self.logger_name}] {self.message}"
+
+
+class LogBufferHandler(logging.Handler):
+    """Scoped in-memory log buffer that captures, redacts, and broadcasts live telemetry."""
+
+    def __init__(self, capacity: int = 1000):
+        super().__init__()
+        self.capacity = capacity
+        self.buffer: Deque[str] = collections.deque(maxlen=capacity)
+        self.entries: Deque[LogEntry] = collections.deque(maxlen=capacity)
+        self.listeners: List[Callable[[LogEntry], None]] = []
+        self.setFormatter(
+            logging.Formatter("[%(asctime)s] %(levelname)-7s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+        )
+
+    def add_listener(self, callback: Callable[[LogEntry], None]) -> None:
+        """Subscribes a UI or progress callback to receive live log entries."""
+        if callback not in self.listeners:
+            self.listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[LogEntry], None]) -> None:
+        """Unsubscribes a listener."""
+        if callback in self.listeners:
+            self.listeners.remove(callback)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            raw_msg = record.getMessage()
+            clean_msg = redact_sensitive_data(raw_msg)
+
+            ts = time.strftime("%H:%M:%S", time.localtime(record.created))
+            entry = LogEntry(
+                timestamp=ts,
+                level=record.levelname,
+                logger_name=record.name,
+                message=clean_msg,
+                raw_time=record.created,
+            )
+            self.entries.append(entry)
+
+            formatted = f"[{ts}] {record.levelname:<7} [{record.name}] {clean_msg}"
+            self.buffer.append(formatted)
+
+            for listener in list(self.listeners):
+                try:
+                    listener(entry)
+                except Exception:
+                    pass
+        except Exception:
+            self.handleError(record)
+
+    def get_logs(self, max_lines: int = 200) -> str:
+        """Returns the most recent formatted log lines (for legacy callers)."""
+        lines = list(self.buffer)[-max_lines:]
+        return "\n".join(lines) if lines else "No runtime logs recorded yet."
+
+    def get_entries(
+        self,
+        level_filter: Optional[str] = None,
+        search_query: Optional[str] = None,
+        max_lines: int = 500,
+        *,
+        level: Optional[str] = None,
+        query: Optional[str] = None,
+        max_entries: Optional[int] = None,
+    ) -> List[LogEntry]:
+        """Returns filtered LogEntry items based on level and search term."""
+        effective_level = level if level is not None else level_filter
+        effective_query = query if query is not None else search_query
+        effective_max = max_entries if max_entries is not None else max_lines
+
+        items = list(self.entries)
+        if effective_level and effective_level.upper() not in ("ALL", ""):
+            items = [e for e in items if e.level.upper() == effective_level.upper()]
+        if effective_query and effective_query.strip():
+            sq = effective_query.strip().lower()
+            items = [e for e in items if sq in e.message.lower() or sq in e.logger_name.lower()]
+        return items[-effective_max:]
+
+    def clear(self) -> None:
+        """Clears both log buffers."""
+        self.buffer.clear()
+        self.entries.clear()
 
 
 class SafeStreamHandler(logging.StreamHandler):

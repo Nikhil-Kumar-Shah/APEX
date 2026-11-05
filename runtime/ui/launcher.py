@@ -6,6 +6,7 @@ This module provides the two-section APEX Notebook experience:
 """
 
 import collections
+from enum import Enum
 import gc
 import html
 import logging
@@ -14,6 +15,7 @@ import re
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
@@ -33,6 +35,12 @@ from runtime.config.schema import ApexConfig
 from runtime.core.errors import ApexErrorCode, RuntimeErrorBase
 from runtime.core.health import HealthMonitor
 from runtime.core.lifecycle import RuntimeLifecycle
+from runtime.logging.logger import (
+    LogBufferHandler,
+    LogEntry,
+    redact_sensitive_data,
+    remove_stream_handlers,
+)
 from runtime.memory.workspace import WorkspaceManager
 from runtime.model.manager import ModelManager
 from runtime.orchestrator.orchestrator import RuntimeOrchestrator
@@ -169,33 +177,38 @@ def detect_environment_hardware() -> Dict[str, Any]:
     }
 
 
-# ── Scoped Log Capture ───────────────────────────────────────────────────────
+# ── Startup Stage States & Models ──────────────────────────────────────────
 
-class LogBufferHandler(logging.Handler):
-    """Scoped in-memory log buffer that captures internal logs without touching sys.stdout."""
+class StageStatus(str, Enum):
+    """Authoritative lifecycle status for startup pipeline stages."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    WARNING = "warning"
+    CANCELLED = "cancelled"
 
-    def __init__(self, capacity: int = 1000):
-        super().__init__()
-        self.capacity = capacity
-        self.buffer: Deque[str] = collections.deque(maxlen=capacity)
-        self.setFormatter(
-            logging.Formatter("[%(asctime)s] %(levelname)-7s [%(name)s] %(message)s", datefmt="%H:%M:%S")
-        )
 
-    def emit(self, record: logging.LogRecord):
-        try:
-            msg = self.format(record)
-            self.buffer.append(msg)
-        except Exception:
-            self.handleError(record)
+@dataclass
+class StageState:
+    """Tracks authoritative real-time state for an individual launch stage."""
+    stage_id: int
+    name: str
+    status: StageStatus = StageStatus.PENDING
+    sub_operation: str = ""
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    progress_pct: Optional[float] = None  # None = indeterminate; float 0.0-100.0 = measurable (NO fake curves)
+    detail: str = ""
+    error: Optional[str] = None
+    is_stalled: bool = False
 
-    def get_logs(self, max_lines: int = 200) -> str:
-        """Returns the most recent formatted log lines."""
-        lines = list(self.buffer)[-max_lines:]
-        return "\n".join(lines) if lines else "No runtime logs recorded yet."
-
-    def clear(self):
-        self.buffer.clear()
+    @property
+    def elapsed_seconds(self) -> float:
+        if self.start_time is None:
+            return 0.0
+        end = self.end_time or time.time()
+        return max(0.0, end - self.start_time)
 
 
 # ── Launcher Stylesheet ─────────────────────────────────────────────────────
@@ -277,15 +290,52 @@ def get_launcher_css() -> str:
         }
         .apex-check-item {
             display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 5px 0;
+            flex-direction: column;
+            gap: 2px;
+            padding: 6px 0;
             color: #475569;
+            border-bottom: 1px solid #f8fafc;
+        }
+        .apex-check-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .apex-check-pending { color: #94a3b8; }
         .apex-check-active { color: #0284c7; font-weight: 600; }
         .apex-check-done { color: #16a34a; font-weight: 500; }
         .apex-check-failed { color: #dc2626; font-weight: 600; }
+        .apex-check-cancelled { color: #94a3b8; font-style: italic; }
+        .apex-sub-op {
+            font-size: 11px;
+            color: #0369a1;
+            margin-left: 24px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            background: #f0f9ff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            max-width: fit-content;
+        }
+        .apex-progress-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 24px;
+            margin-top: 3px;
+        }
+        .apex-progress-track {
+            background: #e2e8f0;
+            border-radius: 4px;
+            height: 6px;
+            width: 140px;
+            overflow: hidden;
+        }
+        .apex-progress-bar {
+            background: #0284c7;
+            height: 100%;
+            transition: width 0.2s ease;
+        }
         .apex-badge-running {
             background: #dcfce7;
             color: #15803d;
@@ -331,18 +381,34 @@ def get_launcher_css() -> str:
             word-break: break-all;
             margin-top: 8px;
         }
+        .apex-console-container {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
         .apex-log-box {
             background: #0f172a;
             color: #e2e8f0;
-            border-radius: 6px;
             padding: 12px;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             font-size: 11px;
-            max-height: 280px;
+            height: 260px;
+            max-height: 260px;
             overflow-y: auto;
             white-space: pre-wrap;
-            line-height: 1.4;
+            line-height: 1.45;
         }
+        .apex-log-entry {
+            padding: 1px 0;
+            display: block;
+        }
+        .apex-badge-log-debug { background: #334155; color: #94a3b8; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .apex-badge-log-info { background: #0369a1; color: #ffffff; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .apex-badge-log-warn { background: #d97706; color: #ffffff; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .apex-badge-log-error { background: #dc2626; color: #ffffff; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .apex-badge-log-crit { background: #7f1d1d; color: #fecaca; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 600; }
         .apex-alert-error {
             background: #fef2f2;
             border: 1px solid #fecaca;
@@ -351,6 +417,17 @@ def get_launcher_css() -> str:
             padding: 12px 14px;
             font-size: 13px;
             margin-top: 12px;
+        }
+        .apex-alert-stall {
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-left: 4px solid #f59e0b;
+            border-radius: 6px;
+            color: #92400e;
+            padding: 10px 14px;
+            font-size: 12px;
+            line-height: 1.45;
+            margin: 10px 0;
         }
         .apex-btn-primary {
             background: #16a34a !important;
@@ -429,11 +506,29 @@ class APEXLauncher:
         # Scoped log capture
         self.log_handler = LogBufferHandler(capacity=1000)
         self._attach_log_handler()
+        self._log_listener: Optional[Callable[[LogEntry], None]] = None
 
-        # Startup stage states: stage_id -> ("pending" | "in_progress" | "completed" | "failed", detail_message)
+        # Authoritative startup stages
+        self.stages: Dict[int, StageState] = {
+            s[0]: StageState(stage_id=s[0], name=s[1]) for s in LAUNCH_STAGES
+        }
+
+        # Backward-compatible view of stage states: stage_id -> ("pending" | "in_progress" | "completed" | "failed", detail_message)
         self.stage_states: Dict[int, Tuple[str, str]] = {
             s[0]: ("pending", "") for s in LAUNCH_STAGES
         }
+
+        # Developer Console & Observability State
+        self.console_mode: str = "development"  # Default: Development Mode (live developer console visible)
+        self.last_progress_time: float = time.time()
+        self.stall_threshold_seconds: float = 45.0
+        self.active_stage_id: Optional[int] = None
+        self._stall_watchdog_thread: Optional[threading.Thread] = None
+        self._stall_stop_event = threading.Event()
+
+        self.filter_level: str = "ALL"
+        self.filter_search: str = ""
+        self.autoscroll: bool = True
 
         # UI Widget references
         self._widgets: Dict[str, Any] = {}
@@ -446,6 +541,14 @@ class APEXLauncher:
 
     def close(self):
         """Closes rendered widgets and containers to prevent duplication across cell reruns."""
+        self._stop_stall_watchdog()
+        if self._log_listener:
+            try:
+                self.log_handler.remove_listener(self._log_listener)
+            except Exception:
+                pass
+            self._log_listener = None
+
         for w in list(self._widgets.values()):
             try:
                 w.close()
@@ -499,6 +602,89 @@ class APEXLauncher:
             if self.log_handler not in l.handlers:
                 l.addHandler(self.log_handler)
                 l.setLevel(logging.INFO)
+
+    def set_stage_status(
+        self,
+        stage_id: int,
+        status: StageStatus,
+        detail: str = "",
+        sub_op: str = "",
+        progress_pct: Optional[float] = None,
+        error: Optional[str] = None,
+    ):
+        """Authoritatively updates state for a given pipeline stage and syncs backward compatibility views."""
+        st = self.stages[stage_id]
+        st.status = status
+        self.last_progress_time = time.time()
+        st.is_stalled = False
+
+        if status == StageStatus.RUNNING:
+            if st.start_time is None:
+                st.start_time = time.time()
+            self.active_stage_id = stage_id
+        elif status in (StageStatus.COMPLETED, StageStatus.FAILED, StageStatus.CANCELLED):
+            st.end_time = time.time()
+            if self.active_stage_id == stage_id:
+                self.active_stage_id = None
+
+        if detail:
+            st.detail = detail
+        if sub_op:
+            st.sub_operation = sub_op
+        elif status in (StageStatus.COMPLETED, StageStatus.FAILED, StageStatus.CANCELLED):
+            st.sub_operation = ""
+        if progress_pct is not None:
+            st.progress_pct = max(0.0, min(100.0, float(progress_pct)))
+        if error:
+            st.error = error
+
+        # Backward compatibility sync
+        legacy_status = "in_progress" if status == StageStatus.RUNNING else status.value
+        if st.error:
+            summary = st.error
+        elif st.detail and st.sub_operation:
+            summary = f"{st.detail} ({st.sub_operation})"
+        else:
+            summary = st.sub_operation or st.detail
+        self.stage_states[stage_id] = (legacy_status, summary)
+
+    def _start_stall_watchdog(self, on_tick: Optional[Callable[[], None]] = None):
+        """Starts background watchdog timer checking if an active stage has stalled without progress (>= 45s)."""
+        self._stall_stop_event.clear()
+
+        def _watchdog_loop():
+            while not self._stall_stop_event.wait(0.1):
+                if not self.is_launching:
+                    break
+                now = time.time()
+                sid = self.active_stage_id
+                if sid is not None:
+                    st = self.stages.get(sid)
+                    if st and st.status == StageStatus.RUNNING:
+                        elapsed = now - self.last_progress_time
+                        if elapsed >= self.stall_threshold_seconds:
+                            if not st.is_stalled:
+                                st.is_stalled = True
+                                logger.warning(
+                                    f"Startup stall watchdog: Stage {sid} ({st.name}) has had no updates for {int(elapsed)}s."
+                                )
+                                if on_tick:
+                                    on_tick()
+                        else:
+                            if st.is_stalled:
+                                st.is_stalled = False
+                                if on_tick:
+                                    on_tick()
+
+        self._stall_watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True)
+        self._stall_watchdog_thread.start()
+
+    def _stop_stall_watchdog(self):
+        """Stops the stall watchdog thread safely."""
+        self._stall_stop_event.set()
+        if self._stall_watchdog_thread and self._stall_watchdog_thread.is_alive():
+            self._stall_watchdog_thread.join(timeout=0.5)
+        self._stall_watchdog_thread = None
 
     def validate_inputs(self, model_id_input: str, precision: str, port_str: str) -> Tuple[bool, str, List[str]]:
         """Validates configuration inputs.
@@ -559,30 +745,60 @@ class APEXLauncher:
             return False
 
         self.is_launching = True
-        for s in LAUNCH_STAGES:
-            self.stage_states[s[0]] = ("pending", "")
+        self.last_progress_time = time.time()
 
-        def _set_stage(sid: int, status: str, msg: str = ""):
-            self.stage_states[sid] = (status, msg)
+        for s in LAUNCH_STAGES:
+            sid = s[0]
+            self.stages[sid] = StageState(stage_id=sid, name=s[1])
+            self.stage_states[sid] = ("pending", "")
+
+        def _emit(
+            sid: int,
+            status: StageStatus,
+            detail: str = "",
+            sub_op: str = "",
+            progress_pct: Optional[float] = None,
+            error: Optional[str] = None,
+        ):
+            self.set_stage_status(
+                sid,
+                status,
+                detail=detail,
+                sub_op=sub_op,
+                progress_pct=progress_pct,
+                error=error,
+            )
             if on_progress:
-                on_progress(sid, status, msg)
+                legacy_status = "in_progress" if status == StageStatus.RUNNING else status.value
+                on_progress(sid, legacy_status, detail or sub_op)
+
+        # Start stall detection watchdog
+        self._start_stall_watchdog(
+            on_tick=lambda: on_progress(self.active_stage_id, "in_progress", "")
+            if (on_progress and self.active_stage_id)
+            else None
+        )
 
         def _worker():
             success = False
             err_msg: Optional[str] = None
             try:
                 # ── Step 1: Environment Initialization
-                _set_stage(1, "in_progress", "Initializing runtime environment & workspace...")
+                _emit(1, StageStatus.RUNNING, detail="Initializing runtime environment & workspace...")
                 if self.lifecycle is None:
                     self.lifecycle = RuntimeLifecycle(workspace_path=self.workspace_path)
-                    startup_ok = self.lifecycle.startup(interactive=False)
-                    if not startup_ok:
-                        raise RuntimeErrorBase(
-                            message="Runtime environment initialization failed.",
-                            cause="Failed to complete workspace or environment lifecycle initialization.",
-                            recovery="Check file permissions in workspace or restart the notebook kernel.",
-                            code=ApexErrorCode.GENERAL_RUNTIME_ERROR,
-                        )
+
+                def _on_sub_op(op_msg: str):
+                    _emit(1, StageStatus.RUNNING, sub_op=op_msg)
+
+                startup_ok = self.lifecycle.startup(interactive=False, on_progress=_on_sub_op)
+                if not startup_ok:
+                    raise RuntimeErrorBase(
+                        message="Runtime environment initialization failed.",
+                        cause="Failed to complete workspace or environment lifecycle initialization.",
+                        recovery="Check file permissions in workspace or restart the notebook kernel.",
+                        code=ApexErrorCode.GENERAL_RUNTIME_ERROR,
+                    )
 
                 cache_path = self.lifecycle.drive_manager.get_path("cache")
                 workspaces_dir = self.lifecycle.drive_manager.persistence_root / "workspaces"
@@ -596,16 +812,16 @@ class APEXLauncher:
 
                 if self.orchestrator is None:
                     self.orchestrator = RuntimeOrchestrator(self.model_manager, workspace_manager)
-                _set_stage(1, "completed", "Environment & default workspace ready")
+                _emit(1, StageStatus.COMPLETED, detail="Environment & default workspace ready")
 
                 # ── Step 2: Dependency Verification
-                _set_stage(2, "in_progress", "Verifying Python dependencies...")
+                _emit(2, StageStatus.RUNNING, detail="Verifying Python dependencies...", sub_op="Checking packages...")
                 diag = DiagnosticsManager(self.workspace_path)
                 diag._report_dependencies()
-                _set_stage(2, "completed", "Core dependencies verified")
+                _emit(2, StageStatus.COMPLETED, detail="Core dependencies verified")
 
                 # ── Step 3: Hardware & GPU Detection
-                _set_stage(3, "in_progress", "Inspecting compute accelerator...")
+                _emit(3, StageStatus.RUNNING, detail="Inspecting compute accelerator...", sub_op="Probing CUDA & RAM...")
                 self.hardware_info = detect_environment_hardware()
                 if self.hardware_info.get("cuda_available"):
                     self.config.device = "cuda"
@@ -613,10 +829,10 @@ class APEXLauncher:
                 else:
                     self.config.device = "cpu"
                     gpu_desc = self.hardware_info["gpu_name"]
-                _set_stage(3, "completed", f"Active device: {self.config.device} · {gpu_desc}")
+                _emit(3, StageStatus.COMPLETED, detail=f"Active device: {self.config.device} · {gpu_desc}")
 
                 # ── Step 4: Model Resolution
-                _set_stage(4, "in_progress", f"Resolving {self.config.model_id}...")
+                _emit(4, StageStatus.RUNNING, detail=f"Resolving {self.config.model_id}...", sub_op="Validating Hugging Face repository...")
                 norm_id, is_val, val_err = normalize_hf_model_id(self.config.model_id)
                 if not is_val:
                     raise RuntimeErrorBase(
@@ -626,10 +842,10 @@ class APEXLauncher:
                         code=ApexErrorCode.MODEL_FILES_INVALID,
                     )
                 self.config.model_id = norm_id
-                _set_stage(4, "completed", f"Resolved repository ID: {norm_id}")
+                _emit(4, StageStatus.COMPLETED, detail=f"Resolved repository ID: {norm_id}")
 
                 # ── Step 5: Model Download & Cache Verification
-                _set_stage(5, "in_progress", f"Checking cached weights for {norm_id}...")
+                _emit(5, StageStatus.RUNNING, detail=f"Checking cached weights for {norm_id}...", sub_op="Verifying cache & downloading weights...")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("MODEL_DOWNLOADING")
                 self.model_manager.download_model(
@@ -637,11 +853,11 @@ class APEXLauncher:
                     revision=self.config.revision,
                     hf_token=self.config.hf_token,
                 )
-                _set_stage(5, "completed", "Model weights downloaded and verified in cache")
+                _emit(5, StageStatus.COMPLETED, detail="Model weights downloaded and verified in cache")
 
                 # ── Step 6: Model Loading into VRAM / RAM
                 target_mem = "VRAM" if self.config.device == "cuda" else "system RAM"
-                _set_stage(6, "in_progress", f"Loading weights into {target_mem} ({self.config.precision})...")
+                _emit(6, StageStatus.RUNNING, detail=f"Loading weights into {target_mem} ({self.config.precision})...", sub_op=f"Allocating tensors to {target_mem}...")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("MODEL_LOADING")
                 self.model_manager.load_model(
@@ -651,10 +867,10 @@ class APEXLauncher:
                     hf_token=self.config.hf_token,
                     device=self.config.device,
                 )
-                _set_stage(6, "completed", f"Model allocated in {target_mem} ({self.config.precision})")
+                _emit(6, StageStatus.COMPLETED, detail=f"Model allocated in {target_mem} ({self.config.precision})")
 
                 # ── Step 7: Inference Engine Initialization
-                _set_stage(7, "in_progress", "Initializing inference engine and warm-up...")
+                _emit(7, StageStatus.RUNNING, detail="Initializing inference engine and warm-up...", sub_op="Executing warm-up inference pass...")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("MODEL_READY")
                 if not self.model_manager.is_loaded:
@@ -664,10 +880,10 @@ class APEXLauncher:
                         recovery="Verify that the selected model architecture is supported.",
                         code=ApexErrorCode.MODEL_LOAD_FAILED,
                     )
-                _set_stage(7, "completed", "Inference engine operational")
+                _emit(7, StageStatus.COMPLETED, detail="Inference engine operational")
 
                 # ── Step 8: Local API Server Startup
-                _set_stage(8, "in_progress", "Starting API server...")
+                _emit(8, StageStatus.RUNNING, detail="Starting API server...", sub_op="Binding FastAPI ASGI server...")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("API_STARTING")
 
@@ -694,37 +910,43 @@ class APEXLauncher:
                         error_code=ApexErrorCode.API_START_FAILED,
                         message=f"API startup failed: {self.api_manager.state.last_error}",
                     )
-                _set_stage(8, "completed", f"Local server bound on port {self.api_manager.config.internal_port}")
+                _emit(8, StageStatus.COMPLETED, detail=f"Local server bound on port {self.api_manager.config.internal_port}")
 
                 # ── Step 9: Local API Health Verification
-                _set_stage(9, "in_progress", "Verifying local API health endpoint...")
+                _emit(9, StageStatus.RUNNING, detail="Verifying local API health endpoint...", sub_op="Probing /health endpoint...")
                 time.sleep(0.5)
                 if self.api_manager.state.api_status.value not in ("running", "ready", "online"):
-                    # Check health status
                     pass
-                _set_stage(9, "completed", "Local endpoint /health confirmed healthy (HTTP 200)")
+                _emit(9, StageStatus.COMPLETED, detail="Local endpoint /health confirmed healthy (HTTP 200)")
 
                 # ── Step 10: Cloudflare Tunnel & Public Endpoint Verification
-                _set_stage(10, "in_progress", "Acquiring and verifying public tunnel URL...")
+                _emit(10, StageStatus.RUNNING, detail="Acquiring and verifying public tunnel URL...", sub_op="Connecting Cloudflare Quick Tunnel...")
                 pub_url = self.api_manager.state.public_url or f"http://127.0.0.1:{self.api_manager.config.internal_port}"
                 openai_url = self.api_manager.state.openai_url or f"{pub_url}/v1"
 
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("READY")
-                _set_stage(10, "completed", f"Verified public endpoint: {pub_url}")
+                _emit(10, StageStatus.COMPLETED, detail=f"Verified public endpoint: {pub_url}")
 
                 self.is_running = True
                 success = True
             except Exception as ex:
                 logger.error(f"APEX Launch failed: {ex}", exc_info=True)
                 err_msg = str(ex)
+                failed_sid = self.active_stage_id or 1
                 for sid in range(1, 11):
-                    if self.stage_states[sid][0] == "in_progress":
-                        _set_stage(sid, "failed", err_msg)
+                    if self.stages[sid].status == StageStatus.RUNNING:
+                        failed_sid = sid
+                        _emit(sid, StageStatus.FAILED, error=err_msg)
                         break
+                # Cancel remaining stages
+                for rem_sid in range(failed_sid + 1, 11):
+                    if self.stages[rem_sid].status == StageStatus.PENDING:
+                        _emit(rem_sid, StageStatus.CANCELLED, detail="Cancelled")
                 if self.orchestrator:
                     self.orchestrator.state_machine.transition_to("FAILED")
             finally:
+                self._stop_stall_watchdog()
                 self.is_launching = False
                 if on_complete:
                     on_complete(success, err_msg)
@@ -739,6 +961,8 @@ class APEXLauncher:
         on_complete: Optional[Callable[[bool, Optional[str]], None]] = None,
     ) -> bool:
         """Executes graceful shutdown and frees GPU/system resources."""
+        self._stop_stall_watchdog()
+
         def _worker():
             err: Optional[str] = None
             try:
@@ -835,30 +1059,147 @@ class APEXLauncher:
         """
 
     def _render_checklist_html(self) -> str:
-        """Renders the 10-step progress checklist widget."""
+        """Renders the 10-step progress checklist widget with real-time status and stall alerts."""
         items = []
+        stall_warning = ""
+
         for sid, name in LAUNCH_STAGES:
-            status, detail = self.stage_states.get(sid, ("pending", ""))
-            if status == "completed":
+            st = self.stages.get(sid)
+            if not st:
+                status = StageStatus.PENDING
+                detail = ""
+                sub_op = ""
+                elapsed = 0.0
+                is_stalled = False
+                progress_pct = None
+                err_text = None
+            else:
+                status = st.status
+                detail = st.detail
+                sub_op = st.sub_operation
+                elapsed = st.elapsed_seconds
+                is_stalled = st.is_stalled
+                progress_pct = st.progress_pct
+                err_text = st.error
+
+            if status == StageStatus.COMPLETED:
                 icon = '<span style="color:#16a34a; font-weight:bold;">✓</span>'
                 cls = "apex-check-done"
-                detail_html = f" <span style='color:#64748b; font-size:11px;'>— {html.escape(detail)}</span>" if detail else ""
-            elif status == "in_progress":
+                time_tag = f" <span style='color:#64748b; font-size:11px;'>({elapsed:.1f}s)</span>" if elapsed > 0 else ""
+                detail_tag = f" <span style='color:#64748b; font-size:11px;'>— {html.escape(detail)}</span>" if detail else ""
+                body = f"""
+                <div class="apex-check-header">
+                    {icon} <span>{sid}. {name}{time_tag}{detail_tag}</span>
+                </div>
+                """
+            elif status == StageStatus.RUNNING:
                 icon = '<span style="color:#0284c7; font-weight:bold;">●</span>'
                 cls = "apex-check-active"
-                detail_html = f" <span style='color:#0284c7; font-size:11px;'>({html.escape(detail)})</span>" if detail else ""
-            elif status == "failed":
+                time_tag = f" <span style='color:#0284c7; font-size:11px; font-weight:600;'>({int(elapsed)}s)</span>"
+
+                sub_op_html = ""
+                if sub_op:
+                    sub_op_html = f"<div class='apex-sub-op'>↳ {html.escape(sub_op)}</div>"
+                elif detail:
+                    sub_op_html = f"<div class='apex-sub-op'>↳ {html.escape(detail)}</div>"
+
+                progress_bar_html = ""
+                if progress_pct is not None:
+                    progress_bar_html = f"""
+                    <div class="apex-progress-wrap">
+                        <div class="apex-progress-track">
+                            <div class="apex-progress-bar" style="width: {progress_pct:.1f}%;"></div>
+                        </div>
+                        <span style="font-size:11px; font-weight:600; color:#0284c7;">{progress_pct:.1f}%</span>
+                    </div>
+                    """
+
+                body = f"""
+                <div class="apex-check-header">
+                    {icon} <span>{sid}. {name}{time_tag}</span>
+                </div>
+                {sub_op_html}
+                {progress_bar_html}
+                """
+
+                if is_stalled:
+                    stall_warning = f"""
+                    <div class="apex-alert-stall">
+                        <b>⚠️ Step {sid} ({name}) is taking longer than expected ({int(elapsed)}s elapsed)</b><br>
+                        APEX is continuing in the background. On CPU-only environments, loading weights or allocating system RAM can take a few minutes.<br>
+                        Please inspect the <b>Developer Console</b> below for live internal operational logs.
+                    </div>
+                    """
+            elif status == StageStatus.FAILED:
                 icon = '<span style="color:#dc2626; font-weight:bold;">✗</span>'
                 cls = "apex-check-failed"
-                detail_html = f" <span style='color:#dc2626; font-size:11px;'>— Error: {html.escape(detail)}</span>" if detail else ""
-            else:
+                msg = err_text or detail or "Operation failed"
+                body = f"""
+                <div class="apex-check-header">
+                    {icon} <span>{sid}. {name} <span style='color:#dc2626; font-size:11px;'>— Error: {html.escape(msg)}</span></span>
+                </div>
+                """
+            elif status == StageStatus.CANCELLED:
+                icon = '<span style="color:#94a3b8;">—</span>'
+                cls = "apex-check-cancelled"
+                body = f"""
+                <div class="apex-check-header">
+                    {icon} <span>{sid}. {name} <span style='color:#94a3b8; font-size:11px;'>(Cancelled)</span></span>
+                </div>
+                """
+            else:  # PENDING
                 icon = '<span style="color:#94a3b8;">○</span>'
                 cls = "apex-check-pending"
-                detail_html = ""
+                body = f"""
+                <div class="apex-check-header">
+                    {icon} <span>{sid}. {name}</span>
+                </div>
+                """
 
-            items.append(f'<li class="apex-check-item {cls}">{icon} <span>{sid}. {name}{detail_html}</span></li>')
+            items.append(f'<li class="apex-check-item {cls}">{body}</li>')
 
-        return f'<ul class="apex-checklist">{"".join(items)}</ul>'
+        return f'{stall_warning}<ul class="apex-checklist">{"".join(items)}</ul>'
+
+    def _render_console_logs_html(self) -> str:
+        """Renders filtered log entries inside the Developer Console box with color badges and secret redaction."""
+        entries = self.log_handler.get_entries(
+            level=self.filter_level,
+            query=self.filter_search,
+            max_entries=200,
+        )
+        if not entries:
+            return '<div class="apex-log-box" style="color:#64748b;">No log entries recorded yet matching current filters.</div>'
+
+        lines = []
+        for e in entries:
+            lvl = e.level.upper()
+            if lvl == "DEBUG":
+                badge_cls = "apex-badge-log-debug"
+            elif lvl == "INFO":
+                badge_cls = "apex-badge-log-info"
+            elif lvl == "WARNING":
+                badge_cls = "apex-badge-log-warn"
+            elif lvl in ("ERROR", "EXCEPTION"):
+                badge_cls = "apex-badge-log-error"
+            else:
+                badge_cls = "apex-badge-log-crit"
+
+            line_html = (
+                f'<div class="apex-log-entry">'
+                f'<span style="color:#64748b;">[{e.timestamp}]</span> '
+                f'<span class="{badge_cls}">{lvl[:5]}</span> '
+                f'<span style="color:#94a3b8;">[{html.escape(e.logger_name)}]</span> '
+                f'<span>{html.escape(e.message)}</span>'
+                f'</div>'
+            )
+            lines.append(line_html)
+
+        return f'<div class="apex-log-box" id="apex-log-window">{"".join(lines)}</div>'
+
+    def _export_logs_text(self) -> str:
+        """Exports full log buffer text with sensitive information redacted."""
+        entries = self.log_handler.get_entries(level="ALL", max_entries=1000)
+        return "\n".join(e.to_formatted_string() for e in entries) if entries else "No logs recorded."
 
     def _get_active_api_key(self) -> str:
         """Retrieves the real active API key from the API Manager state or config."""
@@ -1073,12 +1414,17 @@ print(response.choices[0].message.content)"""
         advanced_accordion.set_title(0, "Advanced Settings")
         advanced_accordion.selected_index = None  # Collapsed by default
 
-        # ── 4. Checklist & Output Widgets
-        checklist_html = widgets.HTML(value="")
-        conn_panel_html = widgets.HTML(value="")
-        alert_html = widgets.HTML(value="")
+        # ── 4. Observability Mode & Action Buttons
+        mode_dd = widgets.Dropdown(
+            options=[
+                ("Development Mode (Live Console Visible)", "development"),
+                ("Release Mode (Minimal)", "release"),
+            ],
+            value=self.console_mode,
+            description="Mode:",
+            layout=widgets.Layout(width="310px"),
+        )
 
-        # ── 5. Action Buttons
         start_btn = widgets.Button(
             description="START APEX",
             button_style="success",
@@ -1094,23 +1440,105 @@ print(response.choices[0].message.content)"""
             layout=widgets.Layout(width="180px", height="38px"),
         )
 
-        # ── 6. Collapsed Connect & Logs Panels
-        connect_code_html = widgets.HTML(value="")
-        logs_text_html = widgets.HTML(value="<div class='apex-log-box'>No logs yet.</div>")
-        refresh_logs_btn = widgets.Button(
-            description="Refresh Logs",
-            icon="refresh",
-            layout=widgets.Layout(width="130px"),
+        # ── 5. Checklist & Output Widgets
+        checklist_html = widgets.HTML(value="")
+        conn_panel_html = widgets.HTML(value="")
+        alert_html = widgets.HTML(value="")
+
+        # ── 6. Live Developer Console
+        level_dd = widgets.Dropdown(
+            options=["ALL", "DEBUG", "INFO", "WARNING", "ERROR"],
+            value=self.filter_level,
+            description="Level:",
+            layout=widgets.Layout(width="150px"),
+        )
+        search_text = widgets.Text(
+            placeholder="Search logs...",
+            layout=widgets.Layout(width="200px"),
+        )
+        autoscroll_cb = widgets.Checkbox(
+            value=self.autoscroll,
+            description="Auto-scroll",
+            layout=widgets.Layout(width="110px"),
+        )
+        clear_logs_btn = widgets.Button(
+            description="Clear",
+            icon="trash",
+            layout=widgets.Layout(width="75px"),
+        )
+        export_logs_btn = widgets.Button(
+            description="Export",
+            icon="download",
+            layout=widgets.Layout(width="80px"),
+        )
+        console_html = widgets.HTML(value=self._render_console_logs_html())
+        export_area = widgets.Textarea(
+            value="",
+            placeholder="Exported logs will appear here...",
+            layout=widgets.Layout(width="98%", height="120px", display="none"),
         )
 
-        logs_box = widgets.VBox([refresh_logs_btn, logs_text_html], layout=widgets.Layout(padding="6px 0"))
-        connect_accordion = widgets.Accordion(children=[connect_code_html, logs_box])
+        console_toolbar = widgets.HBox(
+            [level_dd, search_text, autoscroll_cb, clear_logs_btn, export_logs_btn],
+            layout=widgets.Layout(
+                background_color="#1e293b",
+                padding="6px 8px",
+                border_radius="6px 6px 0 0",
+                align_items="center",
+            ),
+        )
+        console_box = widgets.VBox(
+            [console_toolbar, console_html, export_area],
+            layout=widgets.Layout(margin="4px 0"),
+        )
+        dev_console_accordion = widgets.Accordion(children=[console_box])
+        dev_console_accordion.set_title(0, "Live Developer Console & Telemetry")
+        dev_console_accordion.selected_index = 0 if self.console_mode == "development" else None
+
+        # ── 7. Collapsed Connect Code Panel
+        connect_code_html = widgets.HTML(value="")
+        connect_accordion = widgets.Accordion(children=[connect_code_html])
         connect_accordion.set_title(0, "Connect your application (Python SDK)")
-        connect_accordion.set_title(1, "Runtime Logs & Details")
         connect_accordion.selected_index = None
         connect_accordion.layout.display = "none"
 
         # ── Callbacks
+        def _on_log_record(entry: LogEntry):
+            self.last_progress_time = time.time()
+            console_html.value = self._render_console_logs_html()
+
+        if self._log_listener:
+            try:
+                self.log_handler.remove_listener(self._log_listener)
+            except Exception:
+                pass
+        self._log_listener = _on_log_record
+        self.log_handler.add_listener(_on_log_record)
+
+        def _on_level_change(change):
+            self.filter_level = change["new"]
+            console_html.value = self._render_console_logs_html()
+
+        def _on_search_change(change):
+            self.filter_search = change["new"]
+            console_html.value = self._render_console_logs_html()
+
+        def _on_autoscroll_change(change):
+            self.autoscroll = change["new"]
+
+        def _on_clear_click(_):
+            self.log_handler.clear()
+            export_area.layout.display = "none"
+            console_html.value = self._render_console_logs_html()
+
+        def _on_export_click(_):
+            export_area.value = self._export_logs_text()
+            export_area.layout.display = "block" if export_area.layout.display == "none" else "none"
+
+        def _on_mode_change(change):
+            self.console_mode = change["new"]
+            dev_console_accordion.selected_index = 0 if self.console_mode == "development" else None
+
         def _on_preset_change(change):
             val = change["new"]
             if val == "custom":
@@ -1158,10 +1586,6 @@ print(response.choices[0].message.content)"""
                 </div>
                 """
 
-        def _on_refresh_logs(_):
-            recent_logs = self.log_handler.get_logs(max_lines=150)
-            logs_text_html.value = f"<div class='apex-log-box'>{html.escape(recent_logs)}</div>"
-
         def _on_start_click(_):
             if self.is_launching:
                 return
@@ -1183,11 +1607,13 @@ print(response.choices[0].message.content)"""
 
             def _progress(sid, st, msg):
                 checklist_html.value = self._render_checklist_html()
+                console_html.value = self._render_console_logs_html()
 
             def _complete(success, err):
                 start_btn.disabled = False
                 validate_btn.disabled = False
                 checklist_html.value = self._render_checklist_html()
+                console_html.value = self._render_console_logs_html()
 
                 if success:
                     start_btn.description = "RESTART APEX"
@@ -1215,10 +1641,9 @@ completion = client.chat.completions.create(
 print(completion.choices[0].message.content)"""
 
                     connect_code_html.value = f'<div class="apex-snippet-box">{html.escape(code_content)}</div>'
-                    _on_refresh_logs(None)
                     connect_accordion.layout.display = "block"
                 else:
-                    start_btn.description = "START APEX"
+                    start_btn.description = "RETRY APEX"
                     alert_html.value = f"""
                     <div class="apex-alert-error">
                         <b>Runtime Initialization Failed:</b><br>{html.escape(err or 'Unknown error')}
@@ -1228,14 +1653,21 @@ print(completion.choices[0].message.content)"""
             self.launch(on_progress=_progress, on_complete=_complete)
 
         # Wire observers
+        mode_dd.observe(_on_mode_change, names="value")
+        level_dd.observe(_on_level_change, names="value")
+        search_text.observe(_on_search_change, names="value")
+        autoscroll_cb.observe(_on_autoscroll_change, names="value")
+        clear_logs_btn.on_click(_on_clear_click)
+        export_logs_btn.on_click(_on_export_click)
+
         model_preset_dd.observe(_on_preset_change, names="value")
         model_id_text.observe(_on_model_text_change, names="value")
         validate_btn.on_click(_on_validate_click)
         start_btn.on_click(_on_start_click)
-        refresh_logs_btn.on_click(_on_refresh_logs)
 
         # Store widgets for programmatic access
         self._widgets = {
+            "mode_selector": mode_dd,
             "model_preset": model_preset_dd,
             "model_id": model_id_text,
             "precision": precision_dd,
@@ -1244,6 +1676,9 @@ print(completion.choices[0].message.content)"""
             "checklist_html": checklist_html,
             "conn_panel_html": conn_panel_html,
             "alert_html": alert_html,
+            "console_html": console_html,
+            "dev_console_accordion": dev_console_accordion,
+            "export_area": export_area,
         }
 
         # Assemble layout
@@ -1262,9 +1697,10 @@ print(completion.choices[0].message.content)"""
                     layout=widgets.Layout(margin="0 0 12px 0"),
                 ),
                 advanced_accordion,
-                widgets.HBox([start_btn, validate_btn], layout=widgets.Layout(gap="12px", margin="16px 0 8px 0")),
+                widgets.HBox([start_btn, validate_btn, mode_dd], layout=widgets.Layout(gap="12px", margin="16px 0 8px 0", align_items="center")),
                 alert_html,
                 checklist_html,
+                dev_console_accordion,
                 conn_panel_html,
                 connect_accordion,
             ],

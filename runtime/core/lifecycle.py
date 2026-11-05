@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from runtime.config.manager import ConfigManager
 from runtime.core.identity import ProjectIdentity
@@ -30,21 +30,30 @@ class RuntimeLifecycle:
         self.identity: Optional[ProjectIdentity] = None
         self.is_initialized = False
 
-    def startup(self, interactive: bool = True) -> bool:
+    def startup(
+        self,
+        interactive: bool = True,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> bool:
         """Executes the entire startup sequence.
 
         Args:
             interactive: Whether to prompt user interactively if setup is needed.
+            on_progress: Optional callback to notify granular sub-operation progress.
 
         Returns:
             bool: True if initialization was successful.
         """
         try:
             # 1. Environment Detection
+            if on_progress:
+                on_progress("[1/7] Detecting runtime environment...")
             env = detect_environment()
             logger.info(f"Detected Environment: {env.upper()}", extra={"prefix": "SYSTEM"})
 
             # 2. Drive Mount & Project Detection
+            if on_progress:
+                on_progress("[2/7] Verifying persistent storage & Google Drive...")
             logger.info("Mounting storage drive...", extra={"prefix": "SYSTEM"})
             if not self.drive_manager.mount():
                 logger.warning(
@@ -56,6 +65,8 @@ class RuntimeLifecycle:
             logger.info(f"Project Root: {project_root}", extra={"prefix": "SYSTEM"})
 
             # 3. Path & Directory Setup
+            if on_progress:
+                on_progress("[3/7] Resolving workspace and project directories...")
             persistence_root = self.drive_manager.persistence_root
             logger.info(f"Persistence Root: {persistence_root}", extra={"prefix": "SYSTEM"})
 
@@ -64,8 +75,9 @@ class RuntimeLifecycle:
             config_dir.mkdir(parents=True, exist_ok=True)
             config_file = config_dir / "config.json"
 
-
             # 4. Configuration Detection & Setup Wizard
+            if on_progress:
+                on_progress("[4/7] Validating runtime configuration...")
             self.config_manager = ConfigManager(config_file)
             wizard = SetupWizard(self.config_manager)
 
@@ -80,6 +92,8 @@ class RuntimeLifecycle:
             config = self.config_manager.load()
 
             # 5. Initialize Logging
+            if on_progress:
+                on_progress("[5/7] Initializing runtime logging infrastructure...")
             log_dir = persistence_root / config.get("directories", {}).get("log_dir", "logs")
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "runtime.log"
@@ -95,6 +109,8 @@ class RuntimeLifecycle:
             self.logger.info(f"Project root resolved to: {project_root}", extra={"prefix": "SYSTEM"})
 
             # 6. Initialize Directories (Cache is ephemeral in VM, Output is persistent)
+            if on_progress:
+                on_progress("[6/7] Validating filesystem directory permissions...")
             cache_dir = project_root / config.get("directories", {}).get("cache_dir", "cache")
             output_dir = persistence_root / config.get("directories", {}).get("output_dir", "outputs")
 
@@ -107,6 +123,8 @@ class RuntimeLifecycle:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # 8. Load Project Identity
+            if on_progress:
+                on_progress("[7/7] Loading project identity and default workspace...")
             self.identity = ProjectIdentity.from_config(config)
             self.logger.info(f"Project Loaded: {self.identity.project_name} ({self.identity.project_id})", extra={"prefix": "SYSTEM"})
             self.logger.info(f"Runtime Version: {self.identity.runtime_version}", extra={"prefix": "SYSTEM"})

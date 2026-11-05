@@ -2,6 +2,7 @@
 
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +60,13 @@ class DriveManager:
             except Exception:
                 self._persistence_root = self._local_root
                 return False
+
+        # In a background worker thread, do NOT attempt interactive drive.mount()
+        # because Google Colab cannot attach authorization prompts to background threads,
+        # which blocks the thread for ~5 minutes until Colab's client timeout expires.
+        if threading.current_thread() is not threading.main_thread():
+            self._persistence_root = self._local_root
+            return False
 
         try:
             # Dynamically import and run colab drive mount without force_remount
