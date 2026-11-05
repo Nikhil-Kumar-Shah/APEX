@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration | APEX Documentation</title>
+  <meta name="description" content="Reference guide for all active configuration fields, model identifiers, precision modes, and runtime settings in APEX.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/configuration.html">
+  
+  <meta property="og:title" content="APEX Documentation — Configuration">
+  <meta property="og:description" content="Configure models, precision, ports, authentication, and transport in APEX.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/configuration.html">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link active">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>Configuration Reference</h1>
+        <p class="page-intro">
+          This reference describes all active configuration options supported by the APEX runtime. Settings can be configured interactively through the notebook Launcher or programmatically via configuration files.
+        </p>
+
+        <h2 id="model-id">Model Configuration</h2>
+
+        <h3>Hugging Face Model ID or URL</h3>
+        <p>
+          APEX downloads model weights directly from the Hugging Face Hub. The input field supports multiple formats:
+        </p>
+        <ul>
+          <li><strong>Standard Repo ID:</strong> <code>Qwen/Qwen2.5-1.5B</code>, <code>google/gemma-2-2b-it</code></li>
+          <li><strong>Full Repository URL:</strong> <code>https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct</code></li>
+          <li><strong>URL with Branch Tree:</strong> <code>https://huggingface.co/meta-llama/Llama-3.2-1B/tree/main</code></li>
+          <li><strong>Single-Word Models:</strong> <code>gpt2</code></li>
+        </ul>
+        <p>
+          APEX automatically normalizes these inputs, stripping trailing slashes, <code>.git</code> suffixes, and branch paths.
+        </p>
+
+        <h3>Hugging Face Access Token</h3>
+        <p>
+          Required only when deploying <strong>gated models</strong> (such as Meta LLaMA 3.2 or Mistral) or private organization repositories. Enter your token (starts with <code>hf_...</code>). In the notebook UI, this input is password-masked to protect your credentials.
+        </p>
+
+        <h2 id="precision">Precision &amp; VRAM Allocation</h2>
+        <p>
+          The precision setting directly dictates how model weight tensors are cast in memory:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Precision</th>
+                <th>Bytes / Weight</th>
+                <th>Memory Impact</th>
+                <th>Recommended Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Auto</code> (Default)</td>
+                <td>16-bit / 32-bit</td>
+                <td>Optimized</td>
+                <td>Selects <code>float16</code> when a CUDA accelerator is detected; <code>float32</code> on CPU.</td>
+              </tr>
+              <tr>
+                <td><code>float16</code></td>
+                <td>2 bytes</td>
+                <td>-50% vs fp32</td>
+                <td>Standard on NVIDIA Volta, Turing, Ampere (Colab T4, V100).</td>
+              </tr>
+              <tr>
+                <td><code>bfloat16</code></td>
+                <td>2 bytes</td>
+                <td>-50% vs fp32</td>
+                <td>Preferred on Ampere/Hopper (A100, H100, RTX 3000+) for numerical stability.</td>
+              </tr>
+              <tr>
+                <td><code>float32</code></td>
+                <td>4 bytes</td>
+                <td>Baseline (High)</td>
+                <td>Required only when running on CPU without half-precision support.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="advanced">Advanced Settings</h2>
+        <p>
+          Advanced options are accessible through the collapsible <strong>Advanced Settings</strong> accordion in the notebook Launcher:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>API Port</strong></td>
+                <td><code>8000</code></td>
+                <td>Internal port for the local Uvicorn/FastAPI server (allowed range: 1024–65535).</td>
+              </tr>
+              <tr>
+                <td><strong>Enable Authentication</strong></td>
+                <td><code>True</code></td>
+                <td>Enforces Bearer token verification on all protected inference and file endpoints.</td>
+              </tr>
+              <tr>
+                <td><strong>Custom API Key</strong></td>
+                <td><em>Auto-generated</em></td>
+                <td>Leave blank to allow APEX to generate a cryptographically secure token (<code>APEX_...</code>), or enter your own secret string.</td>
+              </tr>
+              <tr>
+                <td><strong>Transport</strong></td>
+                <td><code>cloudflare</code></td>
+                <td><code>cloudflare</code> initializes a public Cloudflare Quick Tunnel. <code>local</code> restricts binding to <code>127.0.0.1</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Max Tokens</strong></td>
+                <td><code>512</code></td>
+                <td>Upper limit on new tokens generated per completion request (slider range: 64–4096).</td>
+              </tr>
+              <tr>
+                <td><strong>Temperature</strong></td>
+                <td><code>0.70</code></td>
+                <td>Sampling temperature controlling randomness (slider range: 0.00–2.00).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="caching">Model Caching &amp; Storage Architecture</h2>
+        <p>
+          APEX caches model files locally within the runtime filesystem (e.g. <code>/content/cache</code> on Colab, or <code>./cache</code> locally):
+        </p>
+        <ul>
+          <li><strong>Fast Local SSD Caching:</strong> Weights downloaded from Hugging Face are stored in local high-speed storage. Re-running the model in the same runtime session verifies cache integrity instantly without re-downloading.</li>
+          <li><strong>Google Drive vs. Local Storage:</strong> Storing large multi-gigabyte models directly on Google Drive via Colab's FUSE mount creates severe network I/O bottlenecks and frequent disconnects. APEX uses fast local runtime storage for models by default, and reserves Google Drive strictly for lightweight conversation workspaces.</li>
+        </ul>
+
+        <div class="page-nav">
+          <a href="getting-started.html" class="page-nav-link">
+            <span class="page-nav-label">Previous</span>
+            <span class="page-nav-title">&larr; Getting Started</span>
+          </a>
+          <div class="page-nav-next">
+            <a href="api.html" class="page-nav-link">
+              <span class="page-nav-label">Next</span>
+              <span class="page-nav-title">API &amp; Integration &rarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

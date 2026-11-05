@@ -5,7 +5,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from runtime.core.errors import AuthenticationFailedError, DownloadFailedError, ModelNotFoundError
+from runtime.core.errors import (
+    AuthenticationFailedError,
+    DownloadFailedError,
+    ModelNotFoundError,
+    ModelFilesInvalidError,
+)
 
 logger = logging.getLogger("runtime.model.downloader")
 
@@ -96,20 +101,26 @@ class ModelDownloader:
         try:
             from huggingface_hub import snapshot_download
 
-            # Execute standard snapshot download with automatic resume capabilities
+            # Execute snapshot download
             snapshot_download(
                 repo_id=model_id,
-                local_dir=target_dir,
+                local_dir=str(target_dir),
                 token=self.token,
-                local_dir_use_symlinks=False,
-                resume_download=True,
             )
 
-            logger.info("Checksum verification...", extra={"prefix": "DOWNLOAD"})
-            logger.info("Moving into cache...", extra={"prefix": "CACHE"})
-            logger.info("Download completed.", extra={"prefix": "SUCCESS"})
+            logger.info("Checksum and file verification...", extra={"prefix": "DOWNLOAD"})
 
+            # Post-download verification
+            from runtime.model.cache import CacheManager
+            cache_mgr = CacheManager(self.cache_dir)
+            is_valid, reason = cache_mgr.verify_cache_integrity(model_id)
+            if not is_valid:
+                raise ModelFilesInvalidError(model_id, reason=reason)
+
+            logger.info(f"Download complete and verified for '{model_id}'", extra={"prefix": "SUCCESS"})
             return target_dir
+        except ModelFilesInvalidError:
+            raise
         except Exception as e:
             err_msg = str(e).lower()
             if "401" in err_msg or "unauthorized" in err_msg:

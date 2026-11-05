@@ -23,29 +23,49 @@ class DependencyInstaller:
 
     @staticmethod
     def is_installed(package_name: str) -> bool:
-        """Verifies if a python package is currently installed.
+        """Verifies if a python package is currently installed and satisfies constraints.
 
         Args:
-            package_name: Module import name.
+            package_name: Package requirement string (e.g. 'fastapi>=0.100.0').
 
         Returns:
-            bool: True if importable.
+            bool: True if installed and constraint satisfied.
         """
-        # Map package distribution name to python import name where necessary
+        # 1. Attempt precise version requirement checking if packaging is available
+        try:
+            import importlib.metadata
+            from packaging.requirements import Requirement
+            req = Requirement(package_name)
+            try:
+                installed_ver = importlib.metadata.version(req.name)
+                if req.specifier and not req.specifier.contains(installed_ver, prereleases=True):
+                    return False
+                return True
+            except importlib.metadata.PackageNotFoundError:
+                pass
+        except Exception:
+            pass
+
+        # 2. Fallback to module spec resolution
         import_map = {
             "pyngrok": "pyngrok",
             "fastapi": "fastapi",
             "uvicorn": "uvicorn",
             "huggingface-hub": "huggingface_hub",
+            "huggingface_hub": "huggingface_hub",
             "colorama": "colorama",
             "pydantic": "pydantic",
             "python-multipart": "multipart",
             "ipywidgets": "ipywidgets",
+            "torch": "torch",
+            "transformers": "transformers",
+            "requests": "requests",
+            "httpx": "httpx",
+            "pytest": "pytest",
         }
         
         # Strip version specifiers like ==1.0.0 or >=2.0
         clean_name = package_name.split("=")[0].split(">")[0].split("<")[0].split("~")[0].strip()
-        
         import_name = import_map.get(clean_name.lower(), clean_name.replace("-", "_"))
         try:
             spec = importlib.util.find_spec(import_name)
@@ -54,7 +74,7 @@ class DependencyInstaller:
             return False
 
     def install(self, package_list: List[str], retries: int = 2) -> bool:
-        """Executes pip install commands.
+        """Executes pip install commands with output capture.
 
         Args:
             package_list: List of packages to install.
@@ -71,14 +91,19 @@ class DependencyInstaller:
         for attempt in range(retries):
             try:
                 cmd = [sys.executable, "-m", "pip", "install", "-q"] + package_list
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-                logger.info("Package installations finished successfully.", extra={"prefix": "SUCCESS"})
-                return True
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"Installation attempt {attempt+1} failed: {e.stderr}", extra={"prefix": "WARNING"})
-                if attempt == retries - 1:
-                    logger.error("All dependency installation retries failed.", extra={"prefix": "ERROR"})
-                    return False
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0:
+                    logger.info("Package installations finished successfully.", extra={"prefix": "SUCCESS"})
+                    return True
+                else:
+                    err_details = res.stderr.strip() or res.stdout.strip()
+                    logger.warning(f"Installation attempt {attempt+1} failed: {err_details}", extra={"prefix": "WARNING"})
+            except Exception as e:
+                logger.warning(f"Installation attempt {attempt+1} failed: {e}", extra={"prefix": "WARNING"})
+
+            if attempt == retries - 1:
+                logger.error("All dependency installation retries failed.", extra={"prefix": "ERROR"})
+                return False
         return False
 
     def install_requirements(self) -> bool:
@@ -103,7 +128,7 @@ class DependencyInstaller:
                     missing.append(pkg)
             
             if installed:
-                logger.info(f"Skipped {len(installed)} already installed packages.", extra={"prefix": "SYSTEM"})
+                logger.info(f"Skipped {len(installed)} already satisfied dependencies.", extra={"prefix": "SYSTEM"})
             
             if not missing:
                 logger.info("All dependencies are already satisfied.", extra={"prefix": "SUCCESS"})

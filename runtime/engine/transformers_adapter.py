@@ -2,10 +2,13 @@
 
 import gc
 import sys
+import logging
 from typing import Any, Dict, Generator, Optional
 
 from runtime.core.errors import EngineUnavailableError, GPUOutOfMemoryError
 from runtime.engine.base import BaseInferenceEngine
+
+logger = logging.getLogger("runtime.engine.transformers")
 
 
 class TransformersInferenceEngine(BaseInferenceEngine):
@@ -39,23 +42,33 @@ class TransformersInferenceEngine(BaseInferenceEngine):
         # Determine precision and device mappings
         torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
         precision = params.get("precision", "float16")
-        if precision == "bfloat16" and torch.cuda.is_bf16_supported():
-            torch_dtype = torch.bfloat16
+        if precision == "bfloat16" and self.device == "cuda":
+            if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+                torch_dtype = torch.bfloat16
+        elif precision == "float32":
+            torch_dtype = torch.float32
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
             # Defensive loading against OOM
+            load_kwargs = {
+                "torch_dtype": torch_dtype,
+                "low_cpu_mem_usage": True,
+                "trust_remote_code": True,
+            }
+            if self.device == "cuda":
+                load_kwargs["device_map"] = "auto"
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
-                torch_dtype=torch_dtype,
-                device_map="auto" if self.device == "cuda" else None,
-                low_cpu_mem_usage=True,
+                **load_kwargs
             )
             self.current_model_id = model_path
             self.is_loaded = True
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
+        except (RuntimeError, Exception) as e:
+            err_str = str(e).lower()
+            if "out of memory" in err_str or "cuda error: out of memory" in err_str:
                 raise GPUOutOfMemoryError(log_info={"error": str(e)})
             raise e
 
@@ -77,7 +90,7 @@ class TransformersInferenceEngine(BaseInferenceEngine):
 
     def generate_stream(
         self,
-        prompt: str,
+        prompt: Any,
         generation_params: Optional[Dict[str, Any]] = None,
     ) -> Generator[str, None, None]:
         if not self.is_loaded or self.model is None or self.tokenizer is None:

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview | APEX Documentation</title>
+  <meta name="description" content="APEX is an open-source, notebook-first AI model runtime platform providing an interactive web chat and OpenAI-compatible API on Google Colab or local GPUs.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="APEX Documentation — Overview">
+  <meta property="og:description" content="Notebook-first AI runtime platform. Run models on Google Colab GPUs, connect via web chat or OpenAI-compatible API.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link active">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>APEX Overview</h1>
+        <p class="page-intro">
+          APEX is an open-source, notebook-first AI model runtime platform. It deploys open-source machine learning models using Google Colab or local compute resources and exposes them through an accessible web interface and an OpenAI-compatible REST API.
+        </p>
+
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 2rem; flex-wrap: wrap;">
+          <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener" class="btn btn-primary">
+            &#9654; Launch in Google Colab
+          </a>
+          <a href="getting-started.html" class="btn btn-secondary">
+            Getting Started Guide &rarr;
+          </a>
+        </div>
+
+        <h2>What is APEX?</h2>
+        <p>
+          Running modern open-source language models typically requires configuring inference engines, managing GPU memory allocations, securing tunnels, generating credentials, and adapting API client contracts.
+        </p>
+        <p>
+          APEX simplifies this entire operational pipeline into a single, clean Jupyter notebook interface. Users select an open-source model, allow automatic hardware detection to determine optimal precision, and launch a complete production-grade runtime with one click.
+        </p>
+
+        <h2 id="architecture">How It Works</h2>
+        <p>
+          APEX operates directly on user-controlled hardware. The architecture follows a strict, layered dataflow:
+        </p>
+
+        <pre><code>Google Colab / Local Runtime
+          │
+          ▼
+      APEX Runtime
+          │
+          ▼
+   Loaded AI Model
+          │
+          ▼
+   Public API / Web Chat
+          │
+          ▼
+   User Applications</code></pre>
+
+        <p>
+          Once booted, APEX establishes a secure <strong>Cloudflare Quick Tunnel</strong>, providing a verified public HTTPS URL without requiring manual port forwarding, DNS configuration, or account registrations.
+        </p>
+
+        <h2 id="capabilities">Verified Capabilities</h2>
+        <ul>
+          <li><strong>Notebook-First Control:</strong> A clean two-section notebook interface (<code>Setup &amp; Run APEX</code> and <code>Shutdown APEX</code>) eliminates terminal clutter and exposes zero internal classes.</li>
+          <li><strong>Hugging Face Integration:</strong> Download, verify, and cache open-source weights using model repository IDs or direct Hugging Face URLs.</li>
+          <li><strong>OpenAI-Compatible REST API:</strong> Native <code>/v1/chat/completions</code> and <code>/v1/models</code> endpoints allowing immediate integration with Continue, Cline, Roo Code, Aider, Open WebUI, and standard OpenAI SDKs.</li>
+          <li><strong>Streaming Inference:</strong> Real-time token streaming via Server-Sent Events (SSE) with standard <code>data: [DONE]</code> termination.</li>
+          <li><strong>Web Chat Interface:</strong> A browser-accessible chat application available at <code>/chat</code> with live markdown rendering and attachment previews.</li>
+          <li><strong>Document Ingestion:</strong> Ingest text, code, PDF, Word documents, spreadsheets, and structured data via <code>/v1/files</code> for conversational context.</li>
+          <li><strong>Automated Hardware Detection:</strong> Real-time inspection of CUDA accelerators, Apple Silicon MPS, system RAM, and GPU VRAM with precision tier recommendations.</li>
+          <li><strong>Graceful Lifecycle Management:</strong> Single-click resource release, VRAM cache eviction, and safe process shutdown.</li>
+        </ul>
+
+        <div class="callout">
+          <span class="callout-title">Hardware Transparency</span>
+          <p>
+            APEX does not magically overcome physical GPU memory limitations. Model execution depends directly on the available VRAM of your runtime environment. A standard free Google Colab Tesla T4 GPU (15 GB VRAM) comfortably runs 0.5B, 1.5B, and 7B quantized models in <code>float16</code> precision.
+          </p>
+        </div>
+
+        <div class="page-nav">
+          <div class="page-nav-next">
+            <a href="getting-started.html" class="page-nav-link">
+              <span class="page-nav-label">Next</span>
+              <span class="page-nav-title">Getting Started &rarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

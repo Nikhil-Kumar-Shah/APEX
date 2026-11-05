@@ -57,6 +57,11 @@ class AuthManager:
         if not self.config.enable_auth:
             return True
 
+        # Public informational and UI endpoints are accessible without API key
+        path = request.url.path.rstrip("/")
+        if not path or path in ("/health", "/chat", "/version", "/docs", "/openapi.json") or path.startswith("/docs"):
+            return True
+
         if not self.config.api_key:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

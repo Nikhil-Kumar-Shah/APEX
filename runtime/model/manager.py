@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 from runtime.core.errors import (
     ModelNotFoundError,
     UnsupportedArchitectureError,
+    ModelLoadFailedError,
+    ModelFilesInvalidError,
 )
 from runtime.engine import BaseInferenceEngine, get_engine
 from runtime.model.cache import CacheManager
@@ -99,16 +101,21 @@ class ModelManager:
         """Lists metadata of currently cached models."""
         return self.cache_manager.list_cached_models()
 
-    def download_model(self, model_id: str) -> Path:
+    def download_model(self, model_id: str, **kwargs) -> Path:
         """Downloads a model if not already cached.
 
         Args:
             model_id: The Hugging Face repo ID (e.g. 'Qwen/Qwen2.5-1.5B-Instruct').
+            **kwargs: Optional revision, hf_token, or other downloader options.
 
         Returns:
             Path: The local directory containing the model files.
         """
         _validate_model_id(model_id)
+
+        hf_token = kwargs.get("hf_token")
+        if hf_token:
+            self.downloader.token = hf_token
 
         target_path = self.cache_manager.get_model_cache_path(model_id)
 
@@ -129,6 +136,7 @@ class ModelManager:
         **kwargs,
     ) -> BaseInferenceEngine:
         """Downloads (if needed) and loads a model into memory using the Transformers engine.
+        Executes a real minimal warmup inference to verify model functionality.
 
         Args:
             model_id: Hugging Face model repository ID.
@@ -140,8 +148,8 @@ class ModelManager:
         """
         _validate_model_id(model_id)
 
-        if self.active_model_id == model_id and self.active_engine is not None:
-            logger.info(f"Model '{model_id}' is already loaded.", extra={"prefix": "MODEL"})
+        if self.active_model_id == model_id and self.active_engine is not None and self.active_engine.is_loaded:
+            logger.info(f"Model '{model_id}' is already loaded and active.", extra={"prefix": "MODEL"})
             return self.active_engine
 
         # V1: Always use transformers (allow 'mock' override for tests only)
@@ -154,7 +162,7 @@ class ModelManager:
         logger.info(f"Engine: {selected_engine}", extra={"prefix": "MODEL"})
 
         # 1. Download if missing
-        local_path = self.download_model(model_id)
+        local_path = self.download_model(model_id, **kwargs)
         load_path = str(local_path)
 
         # 2. Check GPU
@@ -187,10 +195,22 @@ class ModelManager:
 
             engine.load_model(load_path, parameters=engine_config)
 
+            # 5. Local warmup inference verification
+            logger.info("Executing local model verification inference...", extra={"prefix": "VERIFY"})
+            try:
+                warmup_stream = engine.generate_stream("Hello", {"max_new_tokens": 5, "temperature": 0.0})
+                warmup_tokens = list(warmup_stream)
+                if not warmup_tokens or not any(t.strip() for t in warmup_tokens):
+                    raise RuntimeError("Warmup inference produced empty tokens.")
+                logger.info(f"Warmup verification successful. Response preview: {''.join(warmup_tokens).strip()!r}", extra={"prefix": "SUCCESS"})
+            except Exception as ve:
+                logger.error(f"Model warmup verification failed: {ve}", extra={"prefix": "ERROR"})
+                raise ModelLoadFailedError(model_id, reason=f"Inference warmup failed: {ve}")
+
             self.active_engine = engine
             self.active_model_id = model_id
 
-            logger.info(f"Model ready: {model_id}", extra={"prefix": "SUCCESS"})
+            logger.info(f"Model ready and verified: {model_id}", extra={"prefix": "SUCCESS"})
             return engine
         except Exception as e:
             logger.error(f"Failed to load model '{model_id}': {e}", exc_info=True, extra={"prefix": "ERROR"})
@@ -216,7 +236,7 @@ class ModelManager:
         """
         status: Dict[str, Any] = {
             "active_model_id": self.active_model_id,
-            "is_loaded": self.active_model_id is not None,
+            "is_loaded": self.active_model_id is not None and self.active_engine is not None and getattr(self.active_engine, "is_loaded", False),
             "cache_size_gb": self.cache_manager.get_cache_size_bytes() / (1024**3),
             "cached_models_count": len(self.list_cached_models()),
         }

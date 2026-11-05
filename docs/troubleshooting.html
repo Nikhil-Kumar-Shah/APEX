@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Troubleshooting | APEX Documentation</title>
+  <meta name="description" content="Practical solutions for common runtime, GPU, download, tunnel, and authentication issues in APEX.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/troubleshooting.html">
+  
+  <meta property="og:title" content="APEX Documentation — Troubleshooting">
+  <meta property="og:description" content="Resolve GPU OOM, Hugging Face download errors, Cloudflare tunnel timeouts, and Colab session disconnects.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/troubleshooting.html">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link active">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>Troubleshooting Guide</h1>
+        <p class="page-intro">
+          This guide provides direct, practical fixes for common issues encountered during runtime initialization, model loading, and API interaction.
+        </p>
+
+        <h2 id="oom">1. CUDA Out of Memory (OOM)</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> <code>torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate...</code> during Stage 6 (Model Loading).</p>
+        </div>
+        <p><strong>Likely Cause:</strong> The model parameter count combined with full-precision weights exceeds the physical VRAM of your GPU (e.g. attempting to load a 14B model on a free 15 GB Colab T4 GPU).</p>
+        <p><strong>Practical Fix:</strong></p>
+        <ol>
+          <li>Switch precision from <code>float32</code> to <code>float16</code> or <code>bfloat16</code>, which cuts memory consumption in half.</li>
+          <li>Choose a smaller model preset (e.g. <code>Qwen/Qwen2.5-0.5B</code> requiring ~1.2 GB, or <code>Qwen/Qwen2.5-1.5B</code> requiring ~3.5 GB).</li>
+          <li>In <em>Advanced Settings</em>, reduce <code>Max Tokens</code> from 2048 to 512 or 256.</li>
+        </ol>
+
+        <h2 id="download">2. Model Download or Gated Access Error</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> <code>HuggingFaceHubHTTPError: 401 Client Error: Cannot access gated repo for url...</code> during Stage 5.</p>
+        </div>
+        <p><strong>Likely Cause:</strong> The model (e.g. Meta LLaMA 3.2) requires explicit agreement to its license on Hugging Face, or your Hugging Face token is missing/expired.</p>
+        <p><strong>Practical Fix:</strong></p>
+        <ol>
+          <li>Log into <a href="https://huggingface.co" target="_blank" rel="noopener">huggingface.co</a> and visit the model repository page to accept the terms.</li>
+          <li>Create a read token under <em>Settings &rarr; Access Tokens</em>.</li>
+          <li>Paste the token into the <strong>HF Token</strong> field in Section 1 of the notebook.</li>
+        </ol>
+
+        <h2 id="tunnel">3. Cloudflare Tunnel Initialization Timeout</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> Stage 10 hangs or reports: <code>API startup failed: Cloudflare Tunnel failed to provide a public URL within 25 seconds</code>.</p>
+        </div>
+        <p><strong>Likely Cause:</strong> Transient edge routing latency or DNS throttling on the Cloudflare Quick Tunnel network.</p>
+        <p><strong>Practical Fix:</strong></p>
+        <ol>
+          <li>Click <strong>START APEX</strong> again. Quick Tunnels often resolve successfully on a second connection attempt.</li>
+          <li>If developing on a local workstation, open <em>Advanced Settings</em> and set <strong>Transport</strong> to <code>Local Port Only</code>.</li>
+        </ol>
+
+        <h2 id="auth">4. Authentication &amp; 401 Unauthorized Errors</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> API client returns HTTP 401: <code>{"detail": "Invalid or missing Bearer authentication token"}</code>.</p>
+        </div>
+        <p><strong>Likely Cause:</strong> The client is omitting the <code>Authorization: Bearer &lt;key&gt;</code> header, or using an incorrect key.</p>
+        <p><strong>Practical Fix:</strong></p>
+        <ol>
+          <li>In Section 1, locate the <strong>Active API Key</strong> container in the Connection Panel.</li>
+          <li>Click the reveal toggle to view the real active key and copy it into your client configuration.</li>
+          <li>If you do not require token security, uncheck <strong>Enable Bearer Authentication</strong> in <em>Advanced Settings</em> and click <strong>START APEX</strong>.</li>
+        </ol>
+
+        <h2 id="colab-disconnect">5. Google Colab Session Disconnect</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> The web chat interface displays 502 Bad Gateway; Colab status shows "Disconnected" or "Backend died".</p>
+        </div>
+        <p><strong>Likely Cause:</strong> Google Colab free tier instances disconnect automatically after periods of user inactivity or after reaching the maximum 12-hour session limit.</p>
+        <p><strong>Practical Fix:</strong></p>
+        <ol>
+          <li>In the Colab toolbar, click <strong>Reconnect</strong>.</li>
+          <li>Ensure GPU acceleration remains selected: <em>Runtime &rarr; Change runtime type &rarr; T4 GPU</em>.</li>
+          <li>Re-run Section 1 and click <strong>START APEX</strong> to re-initialize your model.</li>
+        </ol>
+
+        <h2 id="port">6. Port Conflict (Address Already in Use)</h2>
+        <div class="callout">
+          <p><strong>Symptom:</strong> Error binding to port 8000.</p>
+        </div>
+        <p><strong>Likely Cause:</strong> A dangling process from a previously interrupted Python session is still bound to port 8000.</p>
+        <p><strong>Practical Fix:</strong></p>
+        <p>
+          APEX includes automatic port search logic and will scan up to 10 consecutive ports (e.g. 8001, 8002). You can also explicitly specify an alternate port (such as <code>8080</code>) in <em>Advanced Settings</em>.
+        </p>
+
+        <div class="page-nav">
+          <a href="api.html" class="page-nav-link">
+            <span class="page-nav-label">Previous</span>
+            <span class="page-nav-title">&larr; API &amp; Integration</span>
+          </a>
+          <div class="page-nav-next">
+            <a href="development.html" class="page-nav-link">
+              <span class="page-nav-label">Next</span>
+              <span class="page-nav-title">Development &rarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

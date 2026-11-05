@@ -9,19 +9,32 @@ logger = logging.getLogger("runtime.orchestrator.state")
 class RuntimeStateMachine:
     """Manages the lifecycle state of the APEX runtime engine and safeguards transitions."""
 
+    # Unified Phase 1 Lifecycle States + Backwards-Compatible Legacy States
     STATES = [
         "STOPPED",
         "INITIALIZING",
+        "INSTALLING",
         "CHECKING_DEPENDENCIES",
         "INSTALLING_DEPENDENCIES",
+        "GPU_DETECTING",
         "DETECTING_HARDWARE",
         "DETECTING_ENGINES",
+        "MODEL_PREPARING",
+        "MODEL_DOWNLOADING",
         "DOWNLOADING_MODEL",
         "VERIFYING_MODEL",
+        "MODEL_LOADING",
         "LOADING_MODEL",
         "GPU_WARMUP",
+        "MODEL_READY",
+        "API_STARTING",
+        "API_READY",
+        "TUNNEL_STARTING",
+        "TUNNEL_READY",
+        "PUBLIC_VERIFYING",
         "READY",
         "RUNNING",
+        "DEGRADED",
         "UNLOADING",
         "STOPPING",
         "FAILED",

@@ -11,6 +11,8 @@ class Task:
 
     LIFECYCLE_STATES = [
         "QUEUED",
+        "DISPATCHED",
+        "RUNNING",
         "PREPARING",
         "DOWNLOADING",
         "VERIFYING",
@@ -18,6 +20,7 @@ class Task:
         "INITIALIZING MODEL",
         "MOVING TO GPU",
         "READY",
+        "COMPLETED",
         "FAILED",
     ]
 

@@ -72,17 +72,18 @@ class RuntimeOrchestrator:
         return self.task_queue.submit(task)
 
     def _handle_stalled_tasks(self) -> None:
-        """Finds tasks that have not reported updates for more than 30 seconds and aborts them."""
+        """Finds tasks that have not reported updates for more than the threshold and aborts them."""
         now = time.time()
         for t in self.task_queue._tasks.values():
-            if t.status in ["QUEUED", "RUNNING", "DISPATCHED"] and (now - t.last_updated) > 30.0:
-                logger.warning(f"Task {t.task_id} ({t.task_type}) stalled. Aborting task.", extra={"prefix": "WORKER"})
+            # Allow large model downloads and weight loading up to 600s
+            stale_threshold = 600.0 if t.task_type in ["download_model", "load_model"] else 60.0
+            if t.status in ["QUEUED", "RUNNING", "DISPATCHED"] and (now - t.last_updated) > stale_threshold:
+                logger.warning(f"Task {t.task_id} ({t.task_type}) stalled (>{stale_threshold:.0f}s). Aborting task.", extra={"prefix": "WORKER"})
                 t.update_status("FAILED")
-                t.error_message = "Task execution timed out (worker did not report updates)."
+                t.error_message = f"Task execution timed out (no updates for {stale_threshold:.0f}s)."
                 self.notification_center.notify(f"Task '{t.task_type}' stalled and was aborted.", "warning")
                 self.event_dispatcher.publish(RuntimeEvent("task_failed", t.to_dict()))
-                # Restore state machine
-                self.state_machine.transition_to("READY")
+                self.state_machine.transition_to("FAILED")
 
     # --- V1 Handlers: Real execution with full telemetry ---
 
@@ -92,16 +93,17 @@ class RuntimeOrchestrator:
         if not model_id:
             raise ValueError("Missing 'model_id' in download payload")
 
-        self.state_machine.transition_to("DOWNLOADING_MODEL")
+        self.state_machine.transition_to("MODEL_DOWNLOADING")
         self.notification_center.notify(f"Download started for {model_id}", "info")
         
         task.update_status("RUNNING", progress=10)
         self.event_dispatcher.publish(RuntimeEvent("task_progress", task.to_dict()))
 
-        # Real download — all telemetry is emitted by the ModelManager and Downloader
+        # Real download
         self.model_manager.download_model(model_id)
 
-        self.state_machine.transition_to("READY")
+        task.update_status("COMPLETED", progress=100)
+        self.state_machine.transition_to("MODEL_READY")
         self.notification_center.notify(f"Download complete for {model_id}", "success")
 
     def _handle_load_model(self, task: Task) -> None:
@@ -110,18 +112,18 @@ class RuntimeOrchestrator:
         if not model_id:
             raise ValueError("Missing 'model_id' in load model payload")
 
-        self.state_machine.transition_to("LOADING_MODEL")
+        self.state_machine.transition_to("MODEL_LOADING")
         self.notification_center.notify(f"Loading weights for {model_id}...", "info")
 
         task.update_status("RUNNING", progress=20)
         self.event_dispatcher.publish(RuntimeEvent("task_progress", task.to_dict()))
 
-        # Real load — all telemetry is emitted by ModelManager
+        # Real load with warmup inference
         self.model_manager.load_model(model_id)
         
-        self.state_machine.transition_to("READY")
-        self.notification_center.notify(f"Model {model_id} is loaded and ready.", "success")
         task.update_status("COMPLETED", progress=100)
+        self.state_machine.transition_to("MODEL_READY")
+        self.notification_center.notify(f"Model {model_id} is loaded and ready.", "success")
 
     def _handle_sync_workspace(self, task: Task) -> None:
         """Syncs the active workspace."""

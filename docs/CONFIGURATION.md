@@ -1,6 +1,7 @@
 # Configuration Guide
 
-APEX relies on a single configuration file for all runtime behavior: `configs/apex.config.json`.
+APEX relies on a configuration file for runtime behavior: `apex.config.json` (or `workspaces/default/config.json`).
+For the full interactive reference, see the [APEX Documentation Website](https://nikhil-kumar-shah.github.io/APEX/configuration.html).
 
 ---
 

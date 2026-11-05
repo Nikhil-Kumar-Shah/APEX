@@ -25,6 +25,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "huggingface_hub>=0.16.0",
     "colorama>=0.4.6",
+    "requests>=2.28.0",
+    "httpx>=0.24.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -36,10 +39,14 @@ ml = [
     "torch>=2.0.0",
     "transformers>=4.30.0",
 ]
+ui = [
+    "ipywidgets>=8.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Nikhil-Kumar-Shah/APEX"
 BugTracker = "https://github.com/Nikhil-Kumar-Shah/APEX/issues"
 
-[tool.setuptools]
-packages = ["runtime", "bootstrap"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["runtime*", "bootstrap*"]

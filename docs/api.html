@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API &amp; Integration | APEX Documentation</title>
+  <meta name="description" content="OpenAI-compatible REST API reference, Python SDK usage, streaming chat completions, and document ingestion in APEX.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/api.html">
+  
+  <meta property="og:title" content="APEX Documentation — API &amp; Integration">
+  <meta property="og:description" content="Connect Continue, Cline, Aider, Open WebUI, and Python OpenAI SDK to APEX.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/api.html">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link active">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>API &amp; Integration Guide</h1>
+        <p class="page-intro">
+          APEX provides an OpenAI-compatible REST API. Third-party developer extensions, AI clients (Continue, Cline, Roo Code, Aider, Open WebUI), and official OpenAI SDKs connect directly without code alterations.
+        </p>
+
+        <h2 id="endpoints-overview">Base URL &amp; Authentication</h2>
+        <p>
+          When APEX is online, the base URL is exposed through your Cloudflare Quick Tunnel:
+        </p>
+        <pre><code>Base URL: https://&lt;subdomain&gt;.trycloudflare.com/v1</code></pre>
+
+        <h3>Authentication Headers</h3>
+        <p>
+          When authentication is enabled (default), include your Bearer token in the <code>Authorization</code> header:
+        </p>
+        <pre><code>Authorization: Bearer YOUR_APEX_API_KEY</code></pre>
+        <p>
+          <em>Note:</em> Discovery endpoints (<code>/health</code>, <code>/runtime</code>, <code>/version</code>, <code>/chat</code>, and <code>/</code>) remain unauthenticated to allow health checking and browser landing access.
+        </p>
+
+        <h2 id="python-sdk">Python OpenAI SDK Example</h2>
+        <p>
+          APEX is fully compatible with the official <code>openai</code> Python package (v1.0.0+):
+        </p>
+        <pre><code>from openai import OpenAI
+
+# Initialize client pointing to your APEX tunnel endpoint
+client = OpenAI(
+    base_url="https://&lt;subdomain&gt;.trycloudflare.com/v1",
+    api_key="YOUR_APEX_API_KEY"
+)
+
+# Chat completion request with streaming
+response = client.chat.completions.create(
+    model="Qwen/Qwen2.5-1.5B",
+    messages=[
+        {"role": "system", "content": "You are a concise, helpful assistant."},
+        {"role": "user", "content": "Explain quantum computing in two sentences."}
+    ],
+    temperature=0.7,
+    max_tokens=256,
+    stream=True
+)
+
+for chunk in response:
+    content = chunk.choices[0].delta.content or ""
+    print(content, end="", flush=True)
+print()</code></pre>
+
+        <h2 id="curl-example">cURL Example</h2>
+        <pre><code>curl -X POST "https://&lt;subdomain&gt;.trycloudflare.com/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_APEX_API_KEY" \
+  -d '{
+    "model": "Qwen/Qwen2.5-1.5B",
+    "messages": [
+      {"role": "user", "content": "Hello from cURL!"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 128
+  }'</code></pre>
+
+        <h2 id="endpoints">Supported Endpoints</h2>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/v1/chat/completions</code></td>
+                <td>OpenAI-compatible chat completion (streaming SSE &amp; JSON).</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/v1/models</code></td>
+                <td>Lists the active loaded model and available aliases.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/v1/files</code></td>
+                <td>Upload documents for text context extraction (.txt, .pdf, .docx, .csv, .json).</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/v1/files</code></td>
+                <td>Lists uploaded files in the active workspace.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/v1/files/{id}</code></td>
+                <td>Retrieves extracted text and metadata for a specific document.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>DELETE</code></td>
+                <td><code>/v1/files/{id}</code></td>
+                <td>Deletes an uploaded document and removes its context.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/health</code></td>
+                <td>System uptime, queue status, GPU availability, and model readiness.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/runtime</code></td>
+                <td>Telemetry details: VRAM usage, engine type, active precision.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>GET</code></td>
+                <td><code>/chat</code></td>
+                <td>Built-in web chat application for browser interaction.</td>
+                <td><span class="badge badge-red">Verified</span></td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/v1/completions</code></td>
+                <td>Legacy text completion endpoint.</td>
+                <td><span class="badge badge-grey">Supported</span></td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/v1/embeddings</code></td>
+                <td>Returns static dummy vectors (not a trained embedding model).</td>
+                <td><span class="badge badge-grey">Stub</span></td>
+              </tr>
+              <tr>
+                <td><code>POST</code></td>
+                <td><code>/v1/images/*</code></td>
+                <td>Image generation and editing endpoints.</td>
+                <td><span class="badge badge-grey">501 Stub</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="streaming">Streaming Protocol (SSE)</h2>
+        <p>
+          When <code>"stream": true</code> is provided, APEX streams tokens using standard Server-Sent Events with the exact structure expected by OpenAI client libraries:
+        </p>
+        <pre><code>data: {"id":"chatcmpl-a1b2c3","object":"chat.completion.chunk","created":1730000000,"model":"Qwen/Qwen2.5-1.5B","choices":[{"index":0,"delta":{"content":"Quantum"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-a1b2c3","object":"chat.completion.chunk","created":1730000000,"model":"Qwen/Qwen2.5-1.5B","choices":[{"index":0,"delta":{"content":" computing"},"finish_reason":null}]}
+
+data: [DONE]</code></pre>
+
+        <div class="page-nav">
+          <a href="configuration.html" class="page-nav-link">
+            <span class="page-nav-label">Previous</span>
+            <span class="page-nav-title">&larr; Configuration</span>
+          </a>
+          <div class="page-nav-next">
+            <a href="troubleshooting.html" class="page-nav-link">
+              <span class="page-nav-label">Next</span>
+              <span class="page-nav-title">Troubleshooting &rarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

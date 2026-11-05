@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started | APEX Documentation</title>
+  <meta name="description" content="Step-by-step guide to launching APEX in Google Colab or local Python environments in under 2 minutes.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/getting-started.html">
+  
+  <meta property="og:title" content="APEX Documentation — Getting Started">
+  <meta property="og:description" content="Launch APEX in Google Colab, inspect hardware, start the runtime, and connect your IDE or chat client.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/getting-started.html">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link active">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>Getting Started</h1>
+        <p class="page-intro">
+          This guide walks you through launching APEX in Google Colab, starting a model, and accessing both the interactive web chat interface and the OpenAI-compatible REST API.
+        </p>
+
+        <h2 id="quick-launch">1. Launch the Notebook</h2>
+        <p>
+          Open the official APEX notebook in Google Colab:
+        </p>
+        <p>
+          <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener" class="btn btn-primary">
+            &#9654; Open APEX in Google Colab
+          </a>
+        </p>
+        <p>
+          In Google Colab, verify that a GPU runtime is selected:
+          <strong>Runtime &rarr; Change runtime type &rarr; Hardware accelerator &rarr; T4 GPU</strong> (or A100/V100 if subscribed to Colab Pro).
+        </p>
+
+        <h2 id="workflow">2. Standard User Workflow</h2>
+        <p>
+          The notebook contains exactly two main sections:
+        </p>
+
+        <h3>Step A: Run Section 1 (Setup &amp; Run APEX)</h3>
+        <p>
+          Execute the code cell in <strong>Section 1 — Setup &amp; Run APEX</strong>. This automatically sets up the environment, verifies dependencies, and renders the APEX Launcher card.
+        </p>
+
+        <h3>Step B: Review Detected Hardware</h3>
+        <p>
+          The launcher inspects your compute environment and displays:
+        </p>
+        <ul>
+          <li><strong>Runtime Environment:</strong> Google Colab or Local Environment</li>
+          <li><strong>Accelerator:</strong> e.g. NVIDIA Tesla T4 (CUDA)</li>
+          <li><strong>GPU VRAM:</strong> Total available video memory (e.g. 15.0 GB)</li>
+          <li><strong>System RAM:</strong> Available host memory</li>
+          <li><strong>Compute Device:</strong> <code>cuda:0</code>, <code>mps</code>, or <code>cpu</code></li>
+        </ul>
+
+        <h3>Step C: Select Model &amp; Precision</h3>
+        <ul>
+          <li><strong>Preset Dropdown:</strong> Select from curated models like <code>Qwen/Qwen2.5-0.5B</code>, <code>Qwen/Qwen2.5-1.5B</code>, <code>deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B</code>, or choose <em>Custom Hugging Face Model or URL...</em></li>
+          <li><strong>Precision:</strong> Set to <code>Auto</code> (recommended) or explicitly choose <code>float16</code>, <code>bfloat16</code>, or <code>float32</code>.</li>
+          <li><strong>Hugging Face Token:</strong> Optional. Required only if you select gated models (e.g. Meta LLaMA 3.2).</li>
+        </ul>
+
+        <h3>Step D: Click START APEX</h3>
+        <p>
+          Click the green <strong>START APEX</strong> button. The launcher executes the 10-stage deployment pipeline in the background:
+        </p>
+        <ol>
+          <li><strong>Environment Initialization:</strong> Prepares workspace and cache paths.</li>
+          <li><strong>Dependency Verification:</strong> Checks core packages (PyTorch, Transformers, FastAPI).</li>
+          <li><strong>Hardware Detection:</strong> Verifies accelerator availability and compatibility.</li>
+          <li><strong>Model Resolution:</strong> Resolves Hugging Face repository snapshot.</li>
+          <li><strong>Model Download:</strong> Downloads weights with cached resume support.</li>
+          <li><strong>Model Loading:</strong> Allocates model weights into GPU VRAM.</li>
+          <li><strong>Engine Initialization:</strong> Warms up tokenizer and generation pipeline.</li>
+          <li><strong>API Startup:</strong> Binds Uvicorn server to internal port.</li>
+          <li><strong>Health Verification:</strong> Checks local <code>/health</code> endpoint for readiness.</li>
+          <li><strong>Tunnel Verification:</strong> Acquires and verifies the Cloudflare Quick Tunnel URL.</li>
+        </ol>
+
+        <h2 id="connection">3. Connecting to Your Deployment</h2>
+        <p>
+          When the status badge shows <span class="badge badge-red">&#9679; APEX is running</span>, the Connection Panel renders:
+        </p>
+        <ul>
+          <li><strong>Web Chat Interface:</strong> Click the green <strong>Open APEX Chat &nearr;</strong> button to open the browser-based chat app in a new tab.</li>
+          <li><strong>OpenAI API Base URL:</strong> Copy the public endpoint (e.g. <code>https://&lt;subdomain&gt;.trycloudflare.com/v1</code>).</li>
+          <li><strong>Active API Key:</strong> Click the reveal/hide toggle to display your secure auto-generated API key or copy it directly.</li>
+          <li><strong>Connect Your Application:</strong> Expand the code snippet accordion to copy a pre-populated Python script using the official <code>openai</code> SDK.</li>
+        </ul>
+
+        <h2 id="hardware">4. Hardware &amp; GPU Realities</h2>
+        <p>
+          Model loading depends strictly on available video memory (VRAM). Before selecting a model, review the memory benchmarks below:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Parameters</th>
+                <th>Est. VRAM (fp16)</th>
+                <th>Minimum Recommended Hardware</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Qwen/Qwen2.5-0.5B</code></td>
+                <td>0.5 Billion</td>
+                <td>~1.2 GB</td>
+                <td>Free Colab T4, CPU, or Laptop GPU</td>
+              </tr>
+              <tr>
+                <td><code>HuggingFaceTB/SmolLM2-135M</code></td>
+                <td>135 Million</td>
+                <td>~0.6 GB</td>
+                <td>Any CPU or GPU</td>
+              </tr>
+              <tr>
+                <td><code>Qwen/Qwen2.5-1.5B</code></td>
+                <td>1.5 Billion</td>
+                <td>~3.5 GB</td>
+                <td>Free Colab T4 or 4GB+ GPU</td>
+              </tr>
+              <tr>
+                <td><code>DeepSeek-R1-Distill-1.5B</code></td>
+                <td>1.5 Billion</td>
+                <td>~3.5 GB</td>
+                <td>Free Colab T4 or 4GB+ GPU</td>
+              </tr>
+              <tr>
+                <td><code>google/gemma-2-2b-it</code></td>
+                <td>2.0 Billion</td>
+                <td>~5.0 GB</td>
+                <td>Free Colab T4 or 6GB+ GPU</td>
+              </tr>
+              <tr>
+                <td><code>Qwen/Qwen2.5-7B</code></td>
+                <td>7.0 Billion</td>
+                <td>~14.0 GB</td>
+                <td>Free Colab T4 (15 GB) or 16GB GPU</td>
+              </tr>
+              <tr>
+                <td><code>meta-llama/Llama-3.1-8B</code></td>
+                <td>8.0 Billion</td>
+                <td>~16.0 GB</td>
+                <td>Colab Pro A100 or 24GB VRAM GPU</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <span class="callout-title">Out of Memory (OOM) Protection</span>
+          <p>
+            If a model exceeds your available VRAM, PyTorch raises a <code>CUDA out of memory</code> exception. APEX catches this failure, safely unloads partial weights, and reports an informative message without crashing your Python session.
+          </p>
+        </div>
+
+        <h2 id="shutdown">5. Graceful Teardown</h2>
+        <p>
+          When you are finished with your session, scroll down to <strong>Section 2 — Shutdown APEX</strong> and click <strong>STOP APEX</strong>.
+        </p>
+        <p>
+          APEX closes the Cloudflare tunnel, terminates the Uvicorn server, unloads model weights from GPU memory, triggers CUDA cache evacuation, and confirms:
+          <em>"APEX has been safely shut down. All resources released."</em>
+        </p>
+
+        <div class="page-nav">
+          <a href="index.html" class="page-nav-link">
+            <span class="page-nav-label">Previous</span>
+            <span class="page-nav-title">&larr; Overview</span>
+          </a>
+          <div class="page-nav-next">
+            <a href="configuration.html" class="page-nav-link">
+              <span class="page-nav-label">Next</span>
+              <span class="page-nav-title">Configuration &rarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

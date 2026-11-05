@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Development | APEX Documentation</title>
+  <meta name="description" content="Developer and contributor guide for APEX: local environment setup, running tests, code standards, and security reporting.">
+  <link rel="canonical" href="https://nikhil-kumar-shah.github.io/APEX/development.html">
+  
+  <meta property="og:title" content="APEX Documentation — Development">
+  <meta property="og:description" content="Contribute to APEX: repository setup, pytest suite execution, architecture layout, and PR guidelines.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nikhil-kumar-shah.github.io/APEX/development.html">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile Header -->
+  <header class="mobile-header">
+    <a href="index.html" class="mobile-logo"><span>APEX</span> Docs</a>
+    <button id="menu-toggle" class="menu-toggle-btn" aria-label="Toggle navigation menu">&#9776;</button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <a href="index.html" class="brand-link">
+          <span class="logo-mark">&#9670;</span> APEX
+        </a>
+        <div class="brand-desc">AI Model Runtime Platform</div>
+      </div>
+
+      <div class="search-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search docs (Press '/' to focus)" aria-label="Search documentation">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div class="nav-group-title">Documentation</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="index.html" class="nav-link">Overview</a></li>
+        <li class="nav-item"><a href="getting-started.html" class="nav-link">Getting Started</a></li>
+        <li class="nav-item"><a href="configuration.html" class="nav-link">Configuration</a></li>
+        <li class="nav-item"><a href="api.html" class="nav-link">API &amp; Integration</a></li>
+        <li class="nav-item"><a href="troubleshooting.html" class="nav-link">Troubleshooting</a></li>
+        <li class="nav-item"><a href="development.html" class="nav-link active">Development</a></li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <a href="https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb" target="_blank" rel="noopener">
+          &#9654; Open in Google Colab
+        </a>
+        <a href="https://github.com/Nikhil-Kumar-Shah/APEX" target="_blank" rel="noopener">
+          &#9874; GitHub Repository
+        </a>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-wrapper">
+        <h1>Developer &amp; Contribution Guide</h1>
+        <p class="page-intro">
+          This guide provides the technical setup, testing procedures, and architectural overview for developers, researchers, and maintainers contributing to the APEX codebase.
+        </p>
+
+        <h2 id="setup">1. Local Environment Setup</h2>
+        <p>
+          APEX requires Python 3.10+ (tested across Python 3.10, 3.11, 3.12, and 3.15).
+        </p>
+
+        <h3>Clone Repository</h3>
+        <pre><code>git clone https://github.com/Nikhil-Kumar-Shah/APEX.git
+cd APEX</code></pre>
+
+        <h3>Virtual Environment &amp; Dependencies</h3>
+        <pre><code># Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+
+# Install core runtime dependencies
+pip install -r requirements.txt</code></pre>
+
+        <h2 id="testing">2. Running the Test Suite</h2>
+        <p>
+          APEX maintains a comprehensive automated test suite covering API routing, inference pipelines, UI logic, authentication, and file processing:
+        </p>
+        <pre><code># Run complete test suite
+python -m pytest -v
+
+# Run specific test modules
+python -m pytest tests/test_notebook_redesign.py -v
+python -m pytest tests/test_phase4_integration.py -v</code></pre>
+
+        <h3>Code Style &amp; Whitespace Check</h3>
+        <pre><code># Verify zero whitespace or carriage-return issues
+git diff --check</code></pre>
+
+        <h2 id="structure">3. Repository Subsystems</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Directory</th>
+                <th>Subsystem Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>notebook/</code></td>
+                <td>Holds <code>APEX.ipynb</code>, the clean 2-section runtime entry point.</td>
+              </tr>
+              <tr>
+                <td><code>runtime/api/</code></td>
+                <td>FastAPI routing, OpenAI-compatible schemas, streaming SSE, and web chat interface.</td>
+              </tr>
+              <tr>
+                <td><code>runtime/ui/</code></td>
+                <td>The <code>APEXLauncher</code> widget, scoped log buffer, and hardware detection card.</td>
+              </tr>
+              <tr>
+                <td><code>runtime/model/</code></td>
+                <td>Hugging Face model downloader, cache integrity manager, and VRAM weight loader.</td>
+              </tr>
+              <tr>
+                <td><code>runtime/engine/</code></td>
+                <td>Inference engine abstractions and Transformers adapter.</td>
+              </tr>
+              <tr>
+                <td><code>bootstrap/</code></td>
+                <td>Dependency installer, diagnostics, and environment verification.</td>
+              </tr>
+              <tr>
+                <td><code>docs/</code></td>
+                <td>GitHub Pages static documentation website.</td>
+              </tr>
+              <tr>
+                <td><code>tests/</code></td>
+                <td>Pytest test suite (124 automated tests).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="contributing">4. Pull Request Workflow</h2>
+        <ol>
+          <li>Fork the repository and create a feature branch (<code>git checkout -b feature/your-feature</code>).</li>
+          <li>Implement your changes following existing Python conventions and type annotations.</li>
+          <li>Ensure all 124 tests pass without regression (<code>python -m pytest -v</code>).</li>
+          <li>Check that no extraneous files or credentials are tracked (<code>git status</code>).</li>
+          <li>Submit a pull request to the <code>main</code> branch with a descriptive explanation of your changes.</li>
+        </ol>
+
+        <h2 id="security">5. Security &amp; Vulnerability Disclosure</h2>
+        <p>
+          APEX enforces strict security boundaries:
+        </p>
+        <ul>
+          <li><strong>Least Privilege Discovery:</strong> Unauthenticated endpoints (<code>/health</code>, <code>/runtime</code>, <code>/version</code>) never leak internal file paths, hostnames, or model weights.</li>
+          <li><strong>Document Ingestion Protection:</strong> <code>/v1/files</code> sanitizes file names, strictly blocks path traversal attempts (<code>../</code>), rejects file sizes exceeding 25 MB, and enforces strict extension whitelists.</li>
+          <li><strong>Vulnerability Reporting:</strong> If you discover a security vulnerability, please report it privately via GitHub Security Advisories or contact the maintainer directly. Do not open public issues for sensitive vulnerabilities.</li>
+        </ul>
+
+        <div class="page-nav">
+          <a href="troubleshooting.html" class="page-nav-link">
+            <span class="page-nav-label">Previous</span>
+            <span class="page-nav-title">&larr; Troubleshooting</span>
+          </a>
+          <div class="page-nav-next">
+            <a href="index.html" class="page-nav-link">
+              <span class="page-nav-label">Back to Top</span>
+              <span class="page-nav-title">Overview &uarr;</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/js/search.js"></script>
+</body>
+</html>
+

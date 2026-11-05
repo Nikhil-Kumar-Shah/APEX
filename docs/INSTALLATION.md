@@ -6,34 +6,13 @@ APEX can be deployed in a Google Colab notebook (recommended for free GPUs) or o
 
 ## Method 1: Google Colab (Recommended)
 
-1. Open [Google Colab](https://colab.research.google.com).
-2. Create a New Notebook.
-3. In the menu, go to **Runtime > Change runtime type** and select a **T4 GPU** (or better).
-4. Paste the following into the first cell and run it:
+The fastest and easiest way to deploy APEX is with the ready-to-run notebook:
 
-```python
-# Clone the repository
-!git clone https://github.com/Nikhil-Kumar-Shah/APEX.git
-%cd APEX
+1. Click **[Open APEX in Google Colab](https://colab.research.google.com/github/Nikhil-Kumar-Shah/APEX/blob/main/notebook/APEX.ipynb)**.
+2. In Google Colab, verify GPU acceleration: **Runtime > Change runtime type > T4 GPU**.
+3. Run **Section 1 — Setup & Run APEX**, select a model, and click **START APEX**.
 
-# Run the interactive setup wizard
-from pathlib import Path
-from bootstrap.installer import InstallationWizard
-from bootstrap.launcher import RuntimeLauncher
-
-wizard = InstallationWizard(
-    workspace_parent_dir=Path.cwd(),
-    repo_url="https://github.com/Nikhil-Kumar-Shah/APEX.git"
-)
-project_path = wizard.run(interactive=True)
-
-# Launch the runtime
-if project_path:
-    launcher = RuntimeLauncher(project_path)
-    launcher.launch()
-```
-
-The wizard will mount your Google Drive automatically to ensure your workspace survives session resets.
+For the full step-by-step walkthrough, see the [Getting Started Guide](https://nikhil-kumar-shah.github.io/APEX/getting-started.html).
 
 ---
 

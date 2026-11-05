@@ -1,8 +1,8 @@
 # APEX API Reference
 
-**Base URL:** `http://localhost:8000/v1` (or your tunnel URL)
+**Base URL:** `http://localhost:8000/v1` (or your Cloudflare tunnel URL)
 
-APEX implements an OpenAI-compatible REST API. Any client that supports configuring a custom `base_url` can connect to APEX as if it were OpenAI.
+APEX implements an OpenAI-compatible REST API. For the full interactive guide with Python SDK and cURL examples, visit the [APEX Documentation Website](https://nikhil-kumar-shah.github.io/APEX/api.html).
 
 ---
 

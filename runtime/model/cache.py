@@ -1,8 +1,9 @@
 """Model cache manager for cached weights and configurations."""
 
+import json
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class CacheManager:
@@ -32,34 +33,93 @@ class CacheManager:
         return self.cache_dir / normalized_id
 
     def is_cached(self, model_id: str) -> bool:
-        """Checks if a model is fully cached locally.
+        """Checks if a model is fully and validly cached locally.
 
-        For GGUF, looks for a single .gguf file. For PyTorch/Safetensors,
-        checks if standard files (e.g., config.json and weight files) are present.
+        Verifies:
+        1. Model directory exists.
+        2. No temporary or incomplete download files are present (.incomplete, .tmp, .part).
+        3. Config exists, is non-empty, and parses as valid JSON.
+        4. Weight files exist and have non-zero size.
 
         Args:
             model_id: The model identifier.
 
         Returns:
-            bool: True if cached files exist.
+            bool: True if verified cached files exist without corruption.
         """
         path = self.get_model_cache_path(model_id)
         if not path.is_dir():
             return False
 
-        # If it's a GGUF format, check for at least one GGUF file
-        gguf_files = list(path.glob("*.gguf"))
+        # Incomplete download detection
+        for item in path.glob("*"):
+            if item.suffix in [".incomplete", ".tmp", ".part", ".download"]:
+                return False
+
+        # Check for GGUF format
+        gguf_files = [f for f in path.glob("*.gguf") if f.is_file() and f.stat().st_size > 0]
         if gguf_files:
             return True
 
-        # Otherwise check for config.json (representing HuggingFace model structures)
-        if (path / "config.json").exists():
-            # Check that there is at least one safetensors or pytorch bin file
-            weights = list(path.glob("*.safetensors")) + list(path.glob("*.bin"))
-            if weights:
-                return True
+        # Check for config.json (HuggingFace structure)
+        config_path = path / "config.json"
+        if not config_path.is_file() or config_path.stat().st_size == 0:
+            return False
 
-        return False
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+                if not isinstance(config_data, dict):
+                    return False
+        except Exception:
+            return False
+
+        # Verify weights exist and have size > 0
+        weights = [
+            f for f in (list(path.glob("*.safetensors")) + list(path.glob("*.bin")))
+            if f.is_file() and f.stat().st_size > 0
+        ]
+        if not weights:
+            return False
+
+        return True
+
+    def verify_cache_integrity(self, model_id: str) -> Tuple[bool, str]:
+        """Performs a detailed integrity check on the cached model.
+
+        Returns:
+            Tuple[bool, str]: (is_valid, reason_if_invalid)
+        """
+        path = self.get_model_cache_path(model_id)
+        if not path.is_dir():
+            return False, f"Model cache directory does not exist: {path}"
+
+        # Incomplete files
+        incompletes = list(path.glob("*.incomplete")) + list(path.glob("*.tmp"))
+        if incompletes:
+            return False, f"Found {len(incompletes)} incomplete download artifacts."
+
+        # Config check
+        config_path = path / "config.json"
+        if not config_path.is_file():
+            return False, "Missing config.json."
+        if config_path.stat().st_size == 0:
+            return False, "config.json is 0 bytes."
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                json.load(f)
+        except Exception as e:
+            return False, f"config.json is corrupted: {e}"
+
+        # Weights check
+        weights = [
+            f for f in (list(path.glob("*.safetensors")) + list(path.glob("*.bin")) + list(path.glob("*.gguf")))
+            if f.is_file() and f.stat().st_size > 0
+        ]
+        if not weights:
+            return False, "No valid non-empty weight files found (.safetensors, .bin, or .gguf)."
+
+        return True, "Cache integrity verified."
 
     def get_cache_size_bytes(self, model_id: Optional[str] = None) -> int:
         """Calculates total bytes occupied by cached models.

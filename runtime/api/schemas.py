@@ -3,10 +3,12 @@
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
+
 class ChatMessage(BaseModel):
     role: str
     content: str
     name: Optional[str] = None
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -21,6 +23,12 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = 0.0
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+
+class ConversationCreateRequest(BaseModel):
+    title: Optional[str] = "New Conversation"
+
 
 class CompletionRequest(BaseModel):
     model: str
@@ -36,11 +44,13 @@ class CompletionRequest(BaseModel):
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
 
+
 class ModelInfo(BaseModel):
     id: str
     object: str = "model"
     created: int = 1686935002
     owned_by: str = "apex"
+
 
 class ModelList(BaseModel):
     object: str = "list"
