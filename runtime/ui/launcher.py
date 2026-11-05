@@ -47,6 +47,9 @@ from runtime.orchestrator.orchestrator import RuntimeOrchestrator
 
 logger = logging.getLogger("runtime.ui.launcher")
 
+# ── APEX Build Identifier ───────────────────────────────────────────────────
+APEX_BUILD_ID = "2026.11.06-obs-v2-f17c29c"
+
 
 # ── URL Normalization & Validation ───────────────────────────────────────────
 
@@ -163,6 +166,19 @@ def detect_environment_hardware() -> Dict[str, Any]:
         ram_total_gb = 8.0
         ram_avail_gb = 4.0
 
+    # Storage environment
+    storage_desc = "Local Storage Disk"
+    drive_mounted = False
+    if is_colab:
+        drive_path = Path("/content/drive/MyDrive")
+        if drive_path.exists():
+            drive_mounted = True
+            storage_desc = "Google Drive (Persistent)"
+        else:
+            storage_desc = "Ephemeral VM Disk (Non-Persistent)"
+    else:
+        storage_desc = "Local Workspace Disk"
+
     return {
         "is_colab": is_colab,
         "runtime_name": env_name,
@@ -174,6 +190,8 @@ def detect_environment_hardware() -> Dict[str, Any]:
         "ram_available_gb": ram_avail_gb,
         "cuda_available": cuda_available,
         "python_version": sys.version.split()[0],
+        "drive_mounted": drive_mounted,
+        "storage_desc": storage_desc,
     }
 
 
@@ -198,6 +216,7 @@ class StageState:
     sub_operation: str = ""
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    last_update_time: Optional[float] = None
     progress_pct: Optional[float] = None  # None = indeterminate; float 0.0-100.0 = measurable (NO fake curves)
     detail: str = ""
     error: Optional[str] = None
@@ -259,6 +278,16 @@ def get_launcher_css() -> str:
             text-transform: uppercase;
             letter-spacing: 0.04em;
             margin-bottom: 10px;
+        }
+        .apex-build-badge {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 11px;
+            background: #f1f5f9;
+            color: #475569;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            font-weight: 500;
         }
         .apex-grid-hw {
             display: grid;
@@ -335,6 +364,67 @@ def get_launcher_css() -> str:
             background: #0284c7;
             height: 100%;
             transition: width 0.2s ease;
+        }
+        .apex-indeterminate-track {
+            width: 140px;
+            height: 5px;
+            background-color: #e0f2fe;
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+            margin-left: 24px;
+            margin-top: 3px;
+        }
+        .apex-indeterminate-bar {
+            position: absolute;
+            background: linear-gradient(90deg, #38bdf8, #0284c7, #38bdf8);
+            background-size: 200% 100%;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            animation: apex-indeterminate 1.8s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite;
+        }
+        @keyframes apex-indeterminate {
+            0% { left: -35%; right: 100%; }
+            60% { left: 100%; right: -90%; }
+            100% { left: 100%; right: -90%; }
+        }
+        .apex-live-status-card {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-left: 4px solid #0284c7;
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin: 10px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .apex-live-status-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #0369a1;
+        }
+        .apex-live-meta {
+            font-size: 11px;
+            color: #64748b;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .apex-checklist-box {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid #f1f5f9;
+            border-radius: 6px;
+            padding: 2px 8px;
+            margin: 6px 0;
+            background: #ffffff;
         }
         .apex-badge-running {
             background: #dcfce7;
@@ -472,6 +562,7 @@ class APEXLauncher:
     tunneling, and shutdown operations behind an intuitive two-section interface.
     """
 
+    BUILD_ID: str = APEX_BUILD_ID
     _active_container: Any = None
     _active_shutdown_container: Any = None
 
@@ -613,9 +704,11 @@ class APEXLauncher:
         error: Optional[str] = None,
     ):
         """Authoritatively updates state for a given pipeline stage and syncs backward compatibility views."""
+        now = time.time()
         st = self.stages[stage_id]
         st.status = status
-        self.last_progress_time = time.time()
+        self.last_progress_time = now
+        st.last_update_time = now
         st.is_stalled = False
 
         if status == StageStatus.RUNNING:
@@ -907,8 +1000,10 @@ class APEXLauncher:
                 api_ok = self.api_manager.start()
                 if not api_ok:
                     raise RuntimeErrorBase(
-                        error_code=ApexErrorCode.API_START_FAILED,
                         message=f"API startup failed: {self.api_manager.state.last_error}",
+                        cause="FastAPI or Uvicorn server failed to bind or start.",
+                        recovery="Check if the selected port is already in use or inspect the Developer Console.",
+                        code=ApexErrorCode.API_STARTUP_FAILED,
                     )
                 _emit(8, StageStatus.COMPLETED, detail=f"Local server bound on port {self.api_manager.config.internal_port}")
 
@@ -1029,9 +1124,20 @@ class APEXLauncher:
                 </div>
                 """
 
+        storage_notice = ""
+        if hw.get("is_colab") and not hw.get("drive_mounted"):
+            storage_notice = """
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #64748b; border-radius:6px; padding:8px 12px; margin-top:8px; font-size:12px; color:#475569; line-height:1.4;">
+                <b>Storage Notice:</b> Ephemeral local storage active. Google Drive is not mounted; models and caches will not persist across Colab VM restarts.
+            </div>
+            """
+
         return f"""
         <div class="apex-card">
-            <div class="apex-card-title">Detected Hardware & Runtime</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div class="apex-card-title" style="margin-bottom:0;">Detected Hardware & Runtime</div>
+                <span class="apex-build-badge">Build: {APEX_BUILD_ID}</span>
+            </div>
             <div class="apex-grid-hw">
                 <div class="apex-hw-item">
                     <span class="apex-hw-label">Runtime Environment</span>
@@ -1053,8 +1159,13 @@ class APEXLauncher:
                     <span class="apex-hw-label">Compute Device</span>
                     <span class="apex-hw-value">{html.escape(hw['device'])}</span>
                 </div>
+                <div class="apex-hw-item">
+                    <span class="apex-hw-label">Storage Backend</span>
+                    <span class="apex-hw-value">{html.escape(hw.get('storage_desc', 'Local Storage'))}</span>
+                </div>
             </div>
             {warning_banner}
+            {storage_notice}
         </div>
         """
 
@@ -1062,6 +1173,7 @@ class APEXLauncher:
         """Renders the 10-step progress checklist widget with real-time status and stall alerts."""
         items = []
         stall_warning = ""
+        active_st = None
 
         for sid, name in LAUNCH_STAGES:
             st = self.stages.get(sid)
@@ -1073,6 +1185,7 @@ class APEXLauncher:
                 is_stalled = False
                 progress_pct = None
                 err_text = None
+                last_update_time = None
             else:
                 status = st.status
                 detail = st.detail
@@ -1081,6 +1194,10 @@ class APEXLauncher:
                 is_stalled = st.is_stalled
                 progress_pct = st.progress_pct
                 err_text = st.error
+                last_update_time = st.last_update_time
+
+            if status == StageStatus.RUNNING and active_st is None:
+                active_st = st
 
             if status == StageStatus.COMPLETED:
                 icon = '<span style="color:#16a34a; font-weight:bold;">✓</span>'
@@ -1097,13 +1214,15 @@ class APEXLauncher:
                 cls = "apex-check-active"
                 time_tag = f" <span style='color:#0284c7; font-size:11px; font-weight:600;'>({int(elapsed)}s)</span>"
 
+                last_ago = max(0.0, time.time() - (last_update_time or (st.start_time if st else time.time())))
+                last_event_tag = f" <span style='color:#64748b; font-size:11px;'>(Last event: {last_ago:.1f}s ago)</span>"
+
                 sub_op_html = ""
                 if sub_op:
                     sub_op_html = f"<div class='apex-sub-op'>↳ {html.escape(sub_op)}</div>"
                 elif detail:
                     sub_op_html = f"<div class='apex-sub-op'>↳ {html.escape(detail)}</div>"
 
-                progress_bar_html = ""
                 if progress_pct is not None:
                     progress_bar_html = f"""
                     <div class="apex-progress-wrap">
@@ -1113,10 +1232,16 @@ class APEXLauncher:
                         <span style="font-size:11px; font-weight:600; color:#0284c7;">{progress_pct:.1f}%</span>
                     </div>
                     """
+                else:
+                    progress_bar_html = """
+                    <div class="apex-indeterminate-track">
+                        <div class="apex-indeterminate-bar"></div>
+                    </div>
+                    """
 
                 body = f"""
                 <div class="apex-check-header">
-                    {icon} <span>{sid}. {name}{time_tag}</span>
+                    {icon} <span>{sid}. {name}{time_tag}{last_event_tag}</span>
                 </div>
                 {sub_op_html}
                 {progress_bar_html}
@@ -1158,7 +1283,44 @@ class APEXLauncher:
 
             items.append(f'<li class="apex-check-item {cls}">{body}</li>')
 
-        return f'{stall_warning}<ul class="apex-checklist">{"".join(items)}</ul>'
+        live_banner = ""
+        if active_st:
+            act_elapsed = active_st.elapsed_seconds
+            act_sub_op = active_st.sub_operation or active_st.detail or "Executing launch operation..."
+            act_ago = max(0.0, time.time() - (active_st.last_update_time or active_st.start_time or time.time()))
+
+            if active_st.progress_pct is not None:
+                act_prog = f"""
+                <div class="apex-progress-wrap" style="margin-left:0; margin-top:4px;">
+                    <div class="apex-progress-track" style="width:100%; height:7px;">
+                        <div class="apex-progress-bar" style="width: {active_st.progress_pct:.1f}%;"></div>
+                    </div>
+                    <span style="font-size:11px; font-weight:600; color:#0284c7; min-width:45px;">{active_st.progress_pct:.1f}%</span>
+                </div>
+                """
+            else:
+                act_prog = """
+                <div class="apex-indeterminate-track" style="margin-left:0; width:100%; height:6px;">
+                    <div class="apex-indeterminate-bar"></div>
+                </div>
+                """
+
+            live_banner = f"""
+            <div class="apex-live-status-card">
+                <div class="apex-live-status-header">
+                    <span>● Active: Stage {active_st.stage_id}/10 — {html.escape(active_st.name)}</span>
+                    <span style="font-family:monospace; font-weight:600; font-size:12px; color:#0284c7;">{int(act_elapsed)}s elapsed</span>
+                </div>
+                <div class="apex-sub-op" style="margin-left:0; margin-top:2px;">↳ {html.escape(act_sub_op)}</div>
+                <div class="apex-live-meta" style="margin-top:2px;">
+                    <span>Last progress event: {act_ago:.1f}s ago</span>
+                    <span>• Status: {active_st.status.value.upper()}</span>
+                </div>
+                {act_prog}
+            </div>
+            """
+
+        return f'{stall_warning}{live_banner}<div class="apex-checklist-box"><ul class="apex-checklist">{"".join(items)}</ul></div>'
 
     def _render_console_logs_html(self) -> str:
         """Renders filtered log entries inside the Developer Console box with color badges and secret redaction."""
@@ -1168,7 +1330,7 @@ class APEXLauncher:
             max_entries=200,
         )
         if not entries:
-            return '<div class="apex-log-box" style="color:#64748b;">No log entries recorded yet matching current filters.</div>'
+            return f'<div class="apex-log-box" style="color:#64748b;">No log entries recorded yet matching current filters. (Build: {APEX_BUILD_ID})</div>'
 
         lines = []
         for e in entries:
@@ -1478,8 +1640,11 @@ print(response.choices[0].message.content)"""
             layout=widgets.Layout(width="98%", height="120px", display="none"),
         )
 
+        build_label = widgets.HTML(
+            value=f"<span style='color:#94a3b8; font-size:11px; font-family:monospace; margin-left:auto;'>Build: {APEX_BUILD_ID}</span>"
+        )
         console_toolbar = widgets.HBox(
-            [level_dd, search_text, autoscroll_cb, clear_logs_btn, export_logs_btn],
+            [level_dd, search_text, autoscroll_cb, clear_logs_btn, export_logs_btn, build_label],
             layout=widgets.Layout(
                 background_color="#1e293b",
                 padding="6px 8px",
@@ -1492,7 +1657,7 @@ print(response.choices[0].message.content)"""
             layout=widgets.Layout(margin="4px 0"),
         )
         dev_console_accordion = widgets.Accordion(children=[console_box])
-        dev_console_accordion.set_title(0, "Live Developer Console & Telemetry")
+        dev_console_accordion.set_title(0, f"Live Developer Console & Telemetry (Build: {APEX_BUILD_ID})")
         dev_console_accordion.selected_index = 0 if self.console_mode == "development" else None
 
         # ── 7. Collapsed Connect Code Panel

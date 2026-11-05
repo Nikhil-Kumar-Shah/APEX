@@ -1,5 +1,6 @@
 """Google Drive integration and path management."""
 
+import logging
 import os
 import sys
 import threading
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 from runtime.utils.env import is_colab
+
+logger = logging.getLogger("runtime.drive.manager")
 
 
 class DriveManager:
@@ -49,6 +52,7 @@ class DriveManager:
         if not self.is_colab_env:
             # Local environment mock mount
             self._persistence_root = self._local_root
+            logger.debug("Local environment active. Persistent root mapped to local workspace: %s", self._local_root)
             return True
 
         # Check if already mounted in the runtime
@@ -56,8 +60,10 @@ class DriveManager:
             try:
                 self._persistence_root = self.mount_point / "MyDrive" / "APEX"
                 self._persistence_root.mkdir(parents=True, exist_ok=True)
+                logger.info("Google Drive is already mounted at %s. Persistence root: %s", self.mount_point, self._persistence_root)
                 return True
-            except Exception:
+            except Exception as e:
+                logger.warning("Google Drive accessible but failed creating APEX workspace: %s. Falling back to local storage.", e)
                 self._persistence_root = self._local_root
                 return False
 
@@ -66,20 +72,41 @@ class DriveManager:
         # which blocks the thread for ~5 minutes until Colab's client timeout expires.
         if threading.current_thread() is not threading.main_thread():
             self._persistence_root = self._local_root
+            logger.warning(
+                "Google Drive is not mounted and background worker thread '%s' cannot perform interactive auth. "
+                "Explicitly falling back to ephemeral local runtime storage (%s). "
+                "NOTE: Files stored locally will not persist across Colab session restarts. "
+                "To enable persistent storage, run Google Drive authorization from notebook Section 1 before launching.",
+                threading.current_thread().name,
+                self._local_root,
+            )
             return False
 
         try:
             # Dynamically import and run colab drive mount without force_remount
             from google.colab import drive
 
+            logger.info("Initiating Google Drive mount at %s...", self.mount_point)
             drive.mount(str(self.mount_point))
             self._persistence_root = self.mount_point / "MyDrive" / "APEX"
             self._persistence_root.mkdir(parents=True, exist_ok=True)
-
+            logger.info("Google Drive mounted successfully. Persistence root: %s", self._persistence_root)
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Google Drive mount failed (%s). Explicitly falling back to ephemeral local storage (%s).",
+                e,
+                self._local_root,
+            )
             self._persistence_root = self._local_root
             return False
+
+    @property
+    def is_using_persistent_storage(self) -> bool:
+        """Returns True if storage is genuinely backed by persistent Google Drive, False if ephemeral."""
+        if not self.is_colab_env:
+            return True  # Local disk is naturally persistent
+        return self.is_drive_mounted() and self._persistence_root is not None and self._persistence_root != self._local_root
 
     @property
     def project_root(self) -> Path:

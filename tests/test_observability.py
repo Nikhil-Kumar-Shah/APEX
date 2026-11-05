@@ -334,3 +334,78 @@ def test_pipeline_failure_cancels_subsequent_stages_and_enables_retry(tmp_path: 
 
     # Launcher is no longer launching
     assert launcher.is_launching is False
+
+
+# ── 8. Acceptance Verification: Build ID, Storage, & Indeterminate Activity ──
+
+def test_build_identifier_exposure_and_rendering(tmp_path: Path):
+    """Verifies that non-secret development build identifier is exposed and rendered in dashboard."""
+    from runtime.ui.launcher import APEX_BUILD_ID, APEXLauncher
+
+    assert isinstance(APEX_BUILD_ID, str)
+    assert len(APEX_BUILD_ID) > 5
+    assert APEXLauncher.BUILD_ID == APEX_BUILD_ID
+
+    launcher = APEXLauncher(workspace_path=tmp_path)
+    hw_html = launcher._render_hardware_html()
+    assert APEX_BUILD_ID in hw_html
+    assert "apex-build-badge" in hw_html
+
+    console_html = launcher._render_console_logs_html()
+    assert APEX_BUILD_ID in console_html
+
+
+def test_drive_manager_persistence_status_and_explicit_fallback(tmp_path: Path):
+    """Verifies DriveManager distinguishes persistent vs ephemeral storage and logs explicit fallbacks."""
+    from runtime.drive.manager import DriveManager
+
+    dm = DriveManager(fallback_local_root=tmp_path)
+    # On local non-colab environment
+    assert dm.is_colab_env is False
+    assert dm.mount() is True
+    assert dm.is_using_persistent_storage is True
+
+    # In Colab simulation
+    dm.is_colab_env = True
+    # Background thread mount must fail safely and explicitly fall back
+    with patch("threading.current_thread") as mock_thread:
+        mock_thread.return_value = threading.Thread(name="BackgroundWorkerTest")
+        result = dm.mount()
+        assert result is False
+        assert dm.persistence_root == dm.project_root
+        assert dm.is_using_persistent_storage is False
+
+
+def test_indeterminate_progress_vs_determinate_rendering(tmp_path: Path):
+    """Verifies indeterminate shimmer bar is used when progress is non-measurable, avoiding fake curves."""
+    launcher = APEXLauncher(workspace_path=tmp_path)
+
+    # Indeterminate stage
+    launcher.set_stage_status(
+        stage_id=6,
+        status=StageStatus.RUNNING,
+        detail="Loading tensors into memory...",
+        sub_op="Allocating 1.5 GB tensors...",
+        progress_pct=None,
+    )
+
+    html_out = launcher._render_checklist_html()
+    assert "apex-indeterminate-bar" in html_out
+    assert "apex-progress-bar" not in html_out
+    assert "Stage 6/10" in html_out
+    assert "Allocating 1.5 GB tensors..." in html_out
+    assert "Last progress event:" in html_out
+
+    # Measurable stage (e.g. download bytes)
+    launcher.set_stage_status(
+        stage_id=6,
+        status=StageStatus.RUNNING,
+        detail="Loading tensors...",
+        sub_op="Loaded 750 MB / 1500 MB",
+        progress_pct=50.0,
+    )
+
+    html_meas = launcher._render_checklist_html()
+    assert "apex-progress-bar" in html_meas
+    assert "50.0%" in html_meas
+    assert "Loaded 750 MB / 1500 MB" in html_meas

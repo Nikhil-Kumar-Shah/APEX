@@ -57,7 +57,13 @@ class RuntimeLifecycle:
             logger.info("Mounting storage drive...", extra={"prefix": "SYSTEM"})
             if not self.drive_manager.mount():
                 logger.warning(
-                    "Google Drive could not be mounted. Proceeding with local VM storage.",
+                    f"Google Drive is not mounted. Proceeding with EPHEMERAL local VM storage ({self.drive_manager.persistence_root}). "
+                    "Models and outputs will not persist across Colab session restarts.",
+                    extra={"prefix": "STORAGE"},
+                )
+            else:
+                logger.info(
+                    f"Storage initialized: Persistent root at {self.drive_manager.persistence_root}",
                     extra={"prefix": "STORAGE"},
                 )
 
