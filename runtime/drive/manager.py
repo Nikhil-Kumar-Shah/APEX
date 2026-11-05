@@ -37,8 +37,11 @@ class DriveManager:
         Returns:
             bool: True if mount_point and MyDrive subdirectory exist.
         """
-        my_drive = self.mount_point / "MyDrive"
-        return self.mount_point.exists() and my_drive.exists()
+        try:
+            my_drive = self.mount_point / "MyDrive"
+            return self.mount_point.exists() and my_drive.exists()
+        except Exception:
+            return False
 
     def mount(self) -> bool:
         """Mounts Google Drive if running in Google Colab.
@@ -139,5 +142,8 @@ class DriveManager:
         Returns:
             Path: Resolved absolute path.
         """
+        # Model cache must always reside on fast local VM storage, never on Google Drive FUSE
+        if relative_path == "cache" or relative_path.startswith("cache/") or relative_path.startswith("cache\\"):
+            return (self.project_root / relative_path).resolve()
         base = self.persistence_root if persistent else self.project_root
         return (base / relative_path).resolve()

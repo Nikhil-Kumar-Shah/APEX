@@ -253,6 +253,14 @@ class APIManager:
         self._banner_running(reused=is_reused)
         return True
 
+    def verify_inference_if_ready(self) -> Tuple[bool, str]:
+        """Runs E2E inference check against active endpoint once model is loaded."""
+        effective_port = self._active_port or self.config.internal_port or 8000
+        base_endpoint = self.state.public_url or f"http://127.0.0.1:{effective_port}"
+        if not (self.model_manager and getattr(self.model_manager, "active_engine", None) and getattr(self.model_manager.active_engine, "is_loaded", False)):
+            return (False, "Model is not loaded.")
+        return self._verify_inference(base_endpoint)
+
     def stop(self) -> None:
         """Stops the API server and tunnel."""
         self.tunnel.stop()

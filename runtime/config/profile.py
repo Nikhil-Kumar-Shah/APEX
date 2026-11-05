@@ -274,3 +274,151 @@ def check_hardware_compatibility(
             "warning",
             f"Potential OOM. Model requires ~{required_vram:.1f} GB VRAM, but device only has {vram_total_gb:.1f} GB. Consider a smaller model."
         )
+
+
+# ── URL Normalization & Validation ───────────────────────────────────────────
+
+HF_URL_PATTERN = re.compile(
+    r"^https?://(?:www\.)?huggingface\.co/([a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+)(?:/.*)?$",
+    re.IGNORECASE,
+)
+HF_REPO_PATTERN = re.compile(
+    r"^(?:[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+$"
+)
+
+
+def normalize_hf_model_id(val: str) -> Tuple[str, bool, Optional[str]]:
+    """Normalizes and validates a Hugging Face model identifier or URL.
+
+    Accepts:
+        - Full HF URL: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct
+        - HF URL with tree/branch: https://huggingface.co/meta-llama/Llama-3.2-1B/tree/main
+        - HF URL with .git: https://huggingface.co/org/model.git
+        - Standard repo ID: Qwen/Qwen2.5-1.5B-Instruct
+        - Single-part repo ID: gpt2
+
+    Returns:
+        (normalized_model_id, is_valid, error_message_or_none)
+    """
+    if not val or not isinstance(val, str):
+        return ("", False, "Model ID is required.")
+
+    cleaned = val.strip()
+    if not cleaned:
+        return ("", False, "Model ID cannot be empty.")
+
+    # Check for dangerous schemes
+    lower = cleaned.lower()
+    for scheme in ("javascript:", "file:", "data:", "ftp:", "vbscript:"):
+        if lower.startswith(scheme):
+            return ("", False, f"Invalid model URL scheme '{scheme}'.")
+
+    # If it is a web URL, it must be huggingface.co
+    if lower.startswith("http://") or lower.startswith("https://"):
+        match = HF_URL_PATTERN.match(cleaned)
+        if match:
+            repo_id = match.group(1)
+            if repo_id.endswith(".git"):
+                repo_id = repo_id[:-4]
+            return (repo_id, True, None)
+        else:
+            return (
+                cleaned,
+                False,
+                "URL must be a valid Hugging Face repository URL (e.g. https://huggingface.co/org/model).",
+            )
+
+    # Clean potential trailing .git or slashes from raw repo ID
+    repo_cleaned = cleaned.rstrip("/")
+    if repo_cleaned.endswith(".git"):
+        repo_cleaned = repo_cleaned[:-4]
+
+    # Validate repo ID pattern
+    if HF_REPO_PATTERN.match(repo_cleaned):
+        return (repo_cleaned, True, None)
+
+    return (
+        cleaned,
+        False,
+        "Invalid model ID format. Use format 'organization/model-name' or 'model-name'.",
+    )
+
+
+# ── Hardware Detection ───────────────────────────────────────────────────────
+
+def detect_environment_hardware() -> Dict[str, Any]:
+    """Detects real hardware accelerator, memory, and environment details."""
+    import os
+    import sys
+    from pathlib import Path
+
+    is_colab = "google.colab" in sys.modules or os.environ.get("COLAB_GPU") is not None
+    env_name = "Google Colab" if is_colab else "Local Environment"
+
+    device = "cpu"
+    gpu_name = "None (CPU Mode)"
+    vram_total_gb: Optional[float] = None
+    vram_free_gb: Optional[float] = None
+    cuda_available = False
+
+    # Check PyTorch CUDA / MPS
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            cuda_available = True
+            device = "cuda:0"
+            gpu_name = torch.cuda.get_device_name(0)
+            props = torch.cuda.get_device_properties(0)
+            vram_total_gb = round(props.total_memory / (1024**3), 2)
+            try:
+                free_bytes, _ = torch.cuda.mem_get_info(0)
+                vram_free_gb = round(free_bytes / (1024**3), 2)
+            except Exception:
+                vram_free_gb = vram_total_gb
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+            gpu_name = "Apple Silicon (MPS)"
+    except ImportError:
+        pass
+
+    # System RAM
+    ram_total_gb = 0.0
+    ram_avail_gb = 0.0
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        ram_total_gb = round(mem.total / (1024**3), 2)
+        ram_avail_gb = round(mem.available / (1024**3), 2)
+    except Exception:
+        ram_total_gb = 8.0
+        ram_avail_gb = 4.0
+
+    # Storage environment
+    storage_desc = "Local Storage Disk"
+    drive_mounted = False
+    if is_colab:
+        drive_path = Path("/content/drive/MyDrive")
+        if drive_path.exists():
+            drive_mounted = True
+            storage_desc = "Google Drive (Persistent)"
+        else:
+            storage_desc = "Ephemeral VM Disk (Non-Persistent)"
+    else:
+        storage_desc = "Local Workspace Disk"
+
+    return {
+        "is_colab": is_colab,
+        "runtime_name": env_name,
+        "device": device,
+        "gpu_name": gpu_name,
+        "vram_total_gb": vram_total_gb,
+        "vram_free_gb": vram_free_gb,
+        "ram_total_gb": ram_total_gb,
+        "ram_available_gb": ram_avail_gb,
+        "cuda_available": cuda_available,
+        "python_version": sys.version.split()[0],
+        "drive_mounted": drive_mounted,
+        "storage_desc": storage_desc,
+    }

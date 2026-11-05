@@ -216,5 +216,6 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
     # Return HTTP 503 if no active model is loaded
     raise HTTPException(
         status_code=503,
-        detail="No model is currently loaded in APEX runtime. Load a model first before sending requests.",
+        detail="Model is currently loading or not ready in APEX runtime. Please retry in a few moments.",
+        headers={"Retry-After": "5"},
     )
