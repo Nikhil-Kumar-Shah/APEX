@@ -103,8 +103,9 @@ def get_launcher_css() -> str:
             background: #ffffff;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
-            padding: 24px;
-            max-width: 860px;
+            padding: 20px;
+            width: 100%;
+            max-width: 100%;
             margin: 8px 0;
             box-sizing: border-box;
             line-height: 1.5;
@@ -440,14 +441,7 @@ class ScopedOutputRedirect:
 
             def write(self, s):
                 if s:
-                    # Append output to terminal widget
                     self.launcher.write_terminal(s)
-                    # Forward to original stream
-                    try:
-                        self.original_stream.write(s)
-                        self.original_stream.flush()
-                    except Exception:
-                        pass
 
             def flush(self):
                 try:
@@ -628,34 +622,28 @@ class APEXLauncher:
             APEXLauncher._active_shutdown_container = None
 
     def write_terminal(self, text: str):
-        """Safely writes real runtime output to the notebook terminal area and internal log handler."""
+        """Safely writes real runtime output to the active notebook output widget or stdout."""
         if not text:
             return
         redacted = redact_sensitive_data(str(text))
         if not redacted.endswith("\n"):
             redacted += "\n"
 
-        # Deliver to Section 1 terminal widget if rendered
-        if getattr(self, "_terminal_output", None) is not None:
+        # Route to shutdown output if stopping, else primary output area
+        target = self._shutdown_terminal_output if (not self.is_running and getattr(self, "_shutdown_terminal_output", None) is not None) else getattr(self, "_terminal_output", None)
+        if target is not None:
             try:
-                self._terminal_output.append_stdout(redacted)
+                target.append_stdout(redacted)
+                return
             except Exception:
                 pass
 
-        # Deliver to Section 2 shutdown terminal widget if rendered and shutting down
-        if getattr(self, "_shutdown_terminal_output", None) is not None and not self.is_running:
-            try:
-                self._shutdown_terminal_output.append_stdout(redacted)
-            except Exception:
-                pass
-
-        # In headless / console environments, write directly to stdout
-        if getattr(self, "_is_headless", False):
-            try:
-                sys.stdout.write(redacted)
-                sys.stdout.flush()
-            except Exception:
-                pass
+        # Write directly to real stdout if no widget is attached
+        try:
+            sys.__stdout__.write(redacted)
+            sys.__stdout__.flush()
+        except Exception:
+            pass
 
     def clear_terminal(self):
         """Clears the displayed runtime terminal output without deleting backend logs."""
@@ -857,6 +845,7 @@ class APEXLauncher:
         self,
         on_progress: Optional[Callable[[int, str, str], None]] = None,
         on_complete: Optional[Callable[[bool, Optional[str]], None]] = None,
+        sync: bool = False,
     ) -> bool:
         """Executes the full 10-step startup pipeline in a background thread."""
         if self.is_launching:
@@ -1111,6 +1100,10 @@ class APEXLauncher:
                     if on_complete:
                         on_complete(success, err_msg)
 
+        if sync:
+            _worker()
+            return True
+
         th = threading.Thread(target=_worker, daemon=True)
         th.start()
         return True
@@ -1119,6 +1112,7 @@ class APEXLauncher:
         self,
         on_progress: Optional[Callable[[str], None]] = None,
         on_complete: Optional[Callable[[bool, Optional[str]], None]] = None,
+        sync: bool = False,
     ) -> bool:
         """Executes graceful shutdown and frees GPU/system resources."""
         self._stop_stall_watchdog()
@@ -1165,6 +1159,10 @@ class APEXLauncher:
                     if on_complete:
                         on_complete(err is None, err)
 
+        if sync:
+            _worker()
+            return True
+
         th = threading.Thread(target=_worker, daemon=True)
         th.start()
         return True
@@ -1175,7 +1173,10 @@ class APEXLauncher:
         is_cuda = bool(hw.get("cuda_available", False))
         runtime_name = hw.get("runtime_name", "Local Environment")
         device_str = "CUDA GPU" if is_cuda else "CPU"
-        gpu_str = f"{hw.get('gpu_name', 'None')} ({hw.get('vram_total_gb', 0)} GB VRAM)" if is_cuda else "Not available"
+        if is_cuda:
+            gpu_str = f"{hw.get('gpu_name', 'None')} ({hw.get('vram_total_gb', 0)} GB VRAM)"
+        else:
+            gpu_str = hw.get("gpu_name") or "None (CPU Mode)"
         ram_str = f"{hw.get('ram_total_gb', 0)} GB" if hw.get("ram_total_gb") else "Unknown"
 
         warning_banner = ""
@@ -1208,7 +1209,7 @@ class APEXLauncher:
         <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px; color:#334155; line-height:1.5;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <div style="font-weight:600; font-size:12.5px; color:#334155;">Detected Hardware & Runtime</div>
-                <span style="font-size:11px; color:#94a3b8; font-family:monospace;">Build: {APEX_BUILD_ID}</span>
+                <span class="apex-build-badge" style="font-size:11px; color:#94a3b8; font-family:monospace;">Build: {APEX_BUILD_ID}</span>
             </div>
             <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:6px;">
                 <div><span style="color:#64748b; font-size:11px; display:block;">Runtime</span> <b>{html.escape(runtime_name)}</b></div>
@@ -1609,8 +1610,8 @@ print(response.choices[0].message.content)"""
 
         model_id_text = widgets.Text(
             value=curr_repo,
-            placeholder="e.g. Qwen/Qwen2.5-0.5B-Instruct or https://huggingface.co/...",
-            description="Model ID/URL:",
+            placeholder="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct or Qwen/Qwen2.5-0.5B-Instruct",
+            description="",
             layout=widgets.Layout(width="100%"),
         )
 
@@ -1913,9 +1914,12 @@ print(response.choices[0].message.content)"""
 
         # ── Reactive Observers & Wire-ups
         def _get_current_target_model() -> str:
-            if model_source_radio.value == "Curated Model Preset":
+            val = model_id_text.value.strip()
+            if val:
+                return val
+            if model_source_radio.value == "Curated Model Preset" and model_preset_dd.value:
                 return model_preset_dd.value
-            return model_id_text.value.strip()
+            return ""
 
         def _update_custom_validation():
             raw = model_id_text.value.strip()
@@ -1926,6 +1930,7 @@ print(response.choices[0].message.content)"""
             if not ok:
                 custom_validation_html.value = f"<div style='color:#dc2626; font-size:12px; margin-top:4px;'>❌ {err}</div>"
             else:
+                self.config.model_id = norm
                 total_vram = self.hardware_info.get("vram_total_gb") or 0.0
                 is_cuda = bool(self.hardware_info.get("cuda_available", False))
                 ram_avail = self.hardware_info.get("ram_available_gb")
@@ -1950,6 +1955,8 @@ print(response.choices[0].message.content)"""
         def _on_preset_change(change):
             p = get_preset(change["new"])
             preset_details_html.value = self._render_preset_details_html(p)
+            model_id_text.value = change["new"]
+            _update_custom_validation()
 
         def _on_custom_text_change(change):
             _update_custom_validation()
@@ -2062,8 +2069,13 @@ print(response.choices[0].message.content)"""
 
             _on_validate_click(None)
             raw_id = _get_current_target_model()
-            norm_id, is_val, _ = normalize_hf_model_id(raw_id)
+            norm_id, is_val, val_err = normalize_hf_model_id(raw_id)
             if not is_val:
+                alert_html.value = f"""
+                <div class="apex-alert-error">
+                    <b>Invalid Model Repository:</b><br>{html.escape(val_err or 'Invalid Hugging Face model URL or ID.')}
+                </div>
+                """
                 return
 
             # Lock UI
@@ -2123,7 +2135,8 @@ print(completion.choices[0].message.content)"""
                     </div>
                     """
 
-            self.launch(on_progress=_progress, on_complete=_complete)
+            with terminal_output:
+                self.launch(on_progress=_progress, on_complete=_complete, sync=True)
 
         # Wire observers
         mode_dd.observe(_on_mode_change, names="value")
@@ -2143,6 +2156,7 @@ print(completion.choices[0].message.content)"""
 
         validate_btn.on_click(_on_validate_click)
         start_btn.on_click(_on_start_click)
+        _update_custom_validation()
 
         # Store widgets for programmatic access
         self._widgets = {
@@ -2165,34 +2179,43 @@ print(completion.choices[0].message.content)"""
             "export_area": export_area,
         }
 
-        # Assemble layout
-        container = widgets.VBox(
+        # Assemble clean URL-first layout
+        url_input_box = widgets.VBox(
             [
-                hw_html,
-                widgets.VBox(
-                    [
-                        widgets.HTML("<div class='apex-card-title' style='margin-top:6px;'>Model Selection</div>"),
-                        model_source_radio,
-                        preset_box,
-                        custom_box,
-                        token_section_box,
-                        precision_section_box,
-                    ],
-                    layout=widgets.Layout(margin="0 0 10px 0"),
-                ),
-                advanced_accordion,
-                widgets.HBox([start_btn, validate_btn], layout=widgets.Layout(gap="12px", margin="14px 0 6px 0", align_items="center")),
-                alert_html,
-                terminal_box,
-                conn_panel_html,
-                connect_accordion,
+                widgets.HTML("<div style='font-weight:600; font-size:13px; color:#1e293b; margin-bottom:4px;'>Hugging Face Model Repository URL</div>"),
+                model_id_text,
+                custom_validation_html,
             ],
+            layout=widgets.Layout(width="100%", margin="0 0 12px 0"),
+        )
+
+        btn_row = widgets.HBox(
+            [start_btn],
+            layout=widgets.Layout(margin="6px 0 12px 0", align_items="center"),
+        )
+
+        container_children = [
+            hw_html,
+            url_input_box,
+            token_section_box,
+            btn_row,
+            alert_html,
+            terminal_box,
+            conn_panel_html,
+            connect_accordion,
+        ]
+
+        if self.console_mode == "development":
+            container_children.append(dev_console_accordion)
+
+        container = widgets.VBox(
+            container_children,
             layout=widgets.Layout(
                 background_color="#ffffff",
                 border="1px solid #e2e8f0",
                 border_radius="8px",
                 padding="20px",
-                max_width="850px",
+                width="100%",
             ),
         )
 
@@ -2285,7 +2308,8 @@ print(completion.choices[0].message.content)"""
                     </div>
                     """
 
-            self.shutdown(on_progress=_progress, on_complete=_complete)
+            with shutdown_terminal_output:
+                self.shutdown(on_progress=_progress, on_complete=_complete, sync=True)
 
         stop_btn.on_click(_on_stop_click)
 
@@ -2353,7 +2377,7 @@ print(completion.choices[0].message.content)"""
                 border="1px solid #e2e8f0",
                 border_radius="8px",
                 padding="20px",
-                max_width="850px",
+                width="100%",
             ),
         )
 

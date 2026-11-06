@@ -318,6 +318,19 @@ def normalize_hf_model_id(val: str) -> Tuple[str, bool, Optional[str]]:
         if lower.startswith(scheme):
             return ("", False, f"Invalid model URL scheme '{scheme}'.")
 
+    # Reject direct links or paths to individual model weight files (.safetensors, .bin, .gguf, etc.)
+    path_without_query = cleaned.split("?")[0].split("#")[0].rstrip("/")
+    path_lower = path_without_query.lower()
+    file_extensions = (".safetensors", ".bin", ".gguf", ".pt", ".pth", ".onnx", ".h5", ".tflite")
+    if any(path_lower.endswith(ext) for ext in file_extensions):
+        return (
+            cleaned,
+            False,
+            "Direct URLs to individual model weight files (such as .safetensors, .bin, or .gguf) "
+            "are not supported. Please provide the main Hugging Face model repository URL "
+            "(e.g. https://huggingface.co/organization/model).",
+        )
+
     # If it is a web URL, it must be huggingface.co
     if lower.startswith("http://") or lower.startswith("https://"):
         match = HF_URL_PATTERN.match(cleaned)
